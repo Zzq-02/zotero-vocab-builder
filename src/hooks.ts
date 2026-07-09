@@ -293,80 +293,8 @@ function addMainWindowKeys(win: any) {
   });
 }
 
-/* ========== Reader Toolbar Button ========== */
-function registerVocabSection() {
-  // Try ItemPaneManager API (used by Translate plugin)
-  try {
-    const mgr = (Zotero as any).ItemPaneManager;
-    if (mgr && typeof mgr.registerSection === "function") {
-      const key = mgr.registerSection({
-        paneID: "vocab-builder",
-        pluginID: "vocab-builder@zotero.org",
-        header: { l10nID: "vocabbuilder-section-header", icon: "chrome://vocabbuilder/content/icons/favicon@0.5x.png" },
-        sidenav: { l10nID: "vocabbuilder-section-sidenav", icon: "chrome://vocabbuilder/content/icons/favicon.png" },
-        bodyXHTML: '<div id="vb-panel"></div>',
-        onInit: ({ body }: any) => { renderPanel(body); },
-        onDestroy: () => {},
-        onItemChange: ({ body }: any) => { renderPanel(body); },
-      });
-      if (key) { Zotero.debug("VocabBuilder: section registered"); return; }
-    }
-  } catch(e: any) { Zotero.debug("VocabBuilder: API: " + e); }
 
-  // Fallback: add a "Vocab" toolbar button in each reader
-  setInterval(() => {
-    try {
-      const readers = (Zotero.Reader as any)._readers;
-      if (!readers) return;
-      const list: any[] = Array.isArray(readers) ? readers : Object.values(readers);
-      for (const entry of list) {
-        const r = entry?.tabID ? Zotero.Reader.getByTabID(entry.tabID) : entry;
-        if (!r || !r._iframeWindow) continue;
-        const doc = r._iframeWindow.document;
-        if (!doc || doc.getElementById("vb-btn")) continue;
-        const tb = doc.querySelector(".toolbar, #toolbar, [class*='toolbar'], nav");
-        if (!tb) continue;
-        const btn = doc.createElement("button");
-        btn.id = "vb-btn"; btn.textContent = "📚"; btn.title = "Open Vocabulary";
-        btn.style.cssText = "background:none;border:1px solid #aaa;border-radius:4px;padding:2px 10px;cursor:pointer;font-size:14px;margin:0 4px;";
-        btn.addEventListener("click", () => {
-          const mainWin = Zotero.getMainWindows()[0];
-          if (mainWin) openVocabNote(mainWin);
-        });
-        tb.appendChild(btn);
-      }
-    } catch(e: any) {}
-  }, 4000);
-}
 
-function renderPanel(container: HTMLElement) {
-  if (!container || !container.isConnected) return;
-  if (!_ws.length) {
-    container.innerHTML = `<div style="padding:24px;color:#888;text-align:center;font-size:13px;">
-      <p>No vocabulary yet</p><p style="font-size:11px;color:#aaa;">Alt+A to add</p></div>`;
-    return;
-  }
-  let html = `<div style="font-size:13px;color:#333;">
-    <div style="display:flex;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #ddd;background:#f8f8f8;">
-      <strong>📚 ${_ws.length}</strong>
-      <button id="vb-export" style="background:none;border:1px solid #ccc;border-radius:3px;padding:2px 7px;cursor:pointer;font-size:11px;">↓</button>
-    </div>
-    <ul style="list-style:none;padding:0;margin:0;">`;
-  for (const w of _ws) {
-    const icon = w.status === "completed" ? "✅" : w.status === "failed" ? "❌" : "⏳";
-    const def = w.def || (w.status === "pending" ? "⏳" : "");
-    const pos = w.pos ? ` <i>${_escapeHtml(w.pos)}</i>` : "";
-    const phone = w.phone ? ` ${_escapeHtml(w.phone)}` : "";
-    html += `<li style="padding:8px 12px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;">
-      <div><strong>${_escapeHtml(w.word)}</strong>${phone}${pos}<br><span style="color:#555;font-size:0.9em;">${def}</span></div>
-      <span>${icon}</span>
-    </li>`;
-  }
-  html += `</ul></div>`;
-  container.innerHTML = html;
-  const eb = container.querySelector("#vb-export");
-  if (eb) eb.addEventListener("click", () => exportVocab(Zotero.getMainWindow()));
-}
 
 function exportVocab(win: any) {
   try {
@@ -399,7 +327,6 @@ async function onStartup() {
       }
     } catch(e) {}
 
-    registerVocabSection();
     pollReaders();
     setInterval(pollReaders, 3000);
 

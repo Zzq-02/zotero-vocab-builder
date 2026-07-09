@@ -13,8 +13,6 @@ export type FluentMessageId =
   | 'pref-help'
   | 'pref-input'
   | 'pref-title'
-  | 'section-header'
-  | 'section-sidenav'
   | 'startup-begin'
   | 'startup-finish'
   | 'vb-add-word';
