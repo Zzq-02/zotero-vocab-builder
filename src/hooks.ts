@@ -14,7 +14,7 @@ function _sv() {
   if (_st) clearTimeout(_st);
   _st = setTimeout(() => {
     try {
-      const data: any = { words: _ws, updated: new Date().toISOString() };
+      const data: any = { words: _ws, updated: new Date().toISOString(), api: _apiName };
       if (_noteID) data.noteID = _noteID;
       IOUtils.writeJSON(_fp, data).catch(() => {});
     } catch(e) {}
@@ -30,18 +30,73 @@ function isDup(p: string): boolean {
   return _ws.some((w: any)=>w.word.toLowerCase()===p.toLowerCase());
 }
 
-/* ========== Translation (Free Dictionary API) ========== */
-async function tr(w: string): Promise<any> {
-  if (!navigator.onLine) return null;
+/* ========== Translation API ========== */
+// Available APIs: "youdao" (default), "dictionary" (Free Dictionary, English only)
+let _apiName = "youdao";
+
+function _apiPref(): string { return _apiName; }
+
+function _setAPI(name: string) {
+  _apiName = name;
+  _sv(); // save to JSON
+}
+
+// YouDao free web API (English ↔ Chinese, no key needed)
+async function _youdao(text: string): Promise<{ trans: string; def: string } | null> {
   try {
-    const r = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(w)}`,{headers:{Accept:"application/json"},signal:AbortSignal.timeout(8000)});
-    if(r.status===404) return {def:"[Not found]",pos:"",phone:""};
-    if(!r.ok) return null;
-    const d:any = await r.json(); if(!d?.[0]) return null;
-    const e = d[0]; let def="",pos="",phone=e.phonetic||"";
-    if(e.meanings) for(const m of e.meanings){if(!pos)pos=m.partOfSpeech||""; if(m.definitions?.[0]&&!def)def=m.definitions[0].definition;}
-    return {def,pos,phone};
-  } catch(e){return null;}
+    const r = await fetch(
+      `http://fanyi.youdao.com/translate?&i=${encodeURIComponent(text)}&doctype=json&type=EN2ZH_CN`,
+      { signal: AbortSignal.timeout(8000) }
+    );
+    if (!r.ok) return null;
+    const d: any = await r.json();
+    if (d.errorCode === 0 && d.translateResult?.[0]?.[0]?.tgt) {
+      return { trans: d.translateResult[0][0].tgt, def: "" };
+    }
+    return null;
+  } catch (e) { return null; }
+}
+
+// Free Dictionary API (English definitions + phonetics)
+async function _dict(word: string): Promise<{ def: string; pos: string; phone: string } | null> {
+  try {
+    const r = await fetch(
+      `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`,
+      { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8000) }
+    );
+    if (r.status === 404) return { def: "[Not found]", pos: "", phone: "" };
+    if (!r.ok) return null;
+    const d: any = await r.json();
+    if (!d?.[0]) return null;
+    const e = d[0];
+    let def = "", pos = "", phone = e.phonetic || "";
+    if (e.meanings) for (const m of e.meanings) {
+      if (!pos) pos = m.partOfSpeech || "";
+      if (m.definitions?.[0] && !def) def = m.definitions[0].definition;
+    }
+    return { def, pos, phone };
+  } catch (e) { return null; }
+}
+
+// Unified translate: tries selected API, then falls back
+async function _translate(word: string): Promise<{ trans: string; def: string; pos: string; phone: string }> {
+  const result = { trans: "", def: "", pos: "", phone: "" };
+  const api = _apiPref();
+  // Step 1: translate (YouDao gives Chinese, Dictionary gives English def)
+  if (api === "youdao") {
+    const y = await _youdao(word);
+    if (y) result.trans = y.trans;
+    else { const d = await _dict(word); if (d) { result.def = d.def; result.pos = d.pos; result.phone = d.phone; } }
+  } else {
+    const d = await _dict(word);
+    if (d) { result.def = d.def; result.pos = d.pos; result.phone = d.phone; }
+  }
+  // Step 2: if YouDao didn't give a definition, try to get English def too
+  if (api === "youdao" && !result.def) {
+    const d = await _dict(word);
+    if (d) { result.def = d.def; result.pos = d.pos; result.phone = d.phone; }
+  }
+  return result;
 }
 
 /* ========== Note Management ========== */
@@ -55,6 +110,7 @@ function _userLibID(): number {
 }
 
 let _noteTimer: any = null;
+let _noteSyncing = false;
 
 function _syncNote() {
   if (_noteTimer) clearTimeout(_noteTimer);
@@ -99,18 +155,52 @@ async function _doSyncNote(): Promise<void> {
   let html = `<div class="zotero-note znv1"><h1>📚 生词列表 / Vocabulary List</h1>`;
   html += `<p><i>Total: ${_ws.length} words · Updated: ${new Date().toLocaleDateString()}</i></p><hr><ul>`;
   for (const w of _ws) {
+    const trans = w.trans ? ` <span style="color:#c00;">${_escapeHtml(w.trans)}</span>` : "";
     const def = w.def ? ` — ${w.def}` : "";
     const pos = w.pos ? ` <i>(${w.pos})</i>` : "";
     const phone = w.phone ? ` /${w.phone}/` : "";
     const ctx = w.ctx ? `<br><span style="color:#888;">"${_escapeHtml(w.ctx)}"</span>` : "";
     const icon = w.status === "completed" ? "✅" : w.status === "failed" ? "❌" : "⏳";
-    html += `<li>${icon} <b>${_escapeHtml(w.word)}</b>${phone}${pos}${def}${ctx}</li>`;
+    html += `<li>${icon} <b>${_escapeHtml(w.word)}</b>${phone}${pos}${trans}${def}${ctx}</li>`;
   }
   html += `</ul></div>`;
 
+  _noteSyncing = true;
   note.setNote(html);
   await note.saveTx({ notifierData: {} });
   try { await note.reload(); Zotero.Notifier.trigger('modify', 'item', [note.id]); } catch(e) {}
+  _noteSyncing = false;
+}
+
+/* ========== Observe note edits (bidirectional sync) ========== */
+function registerNoteObserver() {
+  try {
+    Zotero.Notifier.registerObserver({
+      notify: (event: string, type: string, ids: any[]) => {
+        if (_noteSyncing) return;
+        if (event !== 'modify' || type !== 'item') return;
+        if (!_noteID || !ids.includes(_noteID)) return;
+        // User edited the vocab note — read it back and sync deletions
+        try {
+          const note = Zotero.Items.get(_noteID);
+          if (!note) return;
+          const html = note.getNote();
+          // Extract words from <b> tags in the note
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(html, 'text/html');
+          const kept: string[] = [];
+          doc.querySelectorAll('li b').forEach((b: any) => {
+            const w = clean(b.textContent || '');
+            if (w) kept.push(w);
+          });
+          // Remove words that user deleted from note
+          const before = _ws.length;
+          _ws = _ws.filter((w: any) => kept.includes(w.word));
+          if (_ws.length < before) { _sv(); pwNotify("🗑 Synced note deletion"); }
+        } catch(e) { Zotero.debug("VocabBuilder: note observer: " + e); }
+      }
+    }, ['item'], 'vocab-builder');
+  } catch(e) { Zotero.debug("VocabBuilder: observer: " + e); }
 }
 
 /* ========== Core Word Functions ========== */
@@ -121,7 +211,7 @@ async function addWord(word:string, ctx:string, src:string): Promise<any> {
 
   const e: any = {
     id: Date.now().toString(36) + Math.random().toString(36).substring(2, 8),
-    word: c, def: "", pos: "", phone: "",
+    word: c, def: "", pos: "", phone: "", trans: "",
     ctx: ctx || "", src: src || "",
     created: new Date().toISOString(),
     status: "pending", tries: 0
@@ -134,13 +224,37 @@ async function addWord(word:string, ctx:string, src:string): Promise<any> {
 
 async function _backgroundSync(e: any, c: string) {
   try {
-    if (!c.includes(" ")) {
-      const t = await tr(c);
-      if (t) { e.def = t.def; e.pos = t.pos; e.phone = t.phone; e.status = "completed"; }
-      else { e.status = navigator.onLine ? "failed" : "pending"; if (navigator.onLine) e.tries = 1; }
+    if (navigator.onLine) {
+      const r = await _translate(c);
+      e.trans = r.trans; e.def = r.def; e.pos = r.pos; e.phone = r.phone;
+      e.status = r.trans || r.def ? "completed" : "failed";
+      if (e.status === "failed") e.tries = 1;
+    } else {
+      e.status = "pending";
     }
     _syncNote();
   } catch(e) { Zotero.debug("VocabBuilder: bg sync: " + e); }
+}
+
+// Retry pending/failed words when coming online
+function _retryPending() {
+  if (!navigator.onLine) return;
+  let retried = 0;
+  for (const w of _ws) {
+    if (w.status !== "pending" && w.status !== "failed") continue;
+    if ((w.tries || 0) >= 3) continue;
+    w.tries = (w.tries || 0) + 1;
+    _translate(w.word).then(r => {
+      w.trans = r.trans || w.trans;
+      w.def = r.def || w.def;
+      w.pos = r.pos || w.pos;
+      w.phone = r.phone || w.phone;
+      w.status = r.trans || r.def ? "completed" : w.status;
+      _sv(); _syncNote();
+    });
+    retried++;
+  }
+  if (retried > 0) pwNotify("🔄 Retrying " + retried + " pending words");
 }
 
 function deleteWord(id: string) {
@@ -185,6 +299,16 @@ function addMenu(win: any) {
     el3.setAttribute("id", "vb-menu-export");
     el3.addEventListener("command", function() { exportVocab(win); });
     pop.appendChild(el3);
+
+    const el4 = doc.createXULElement("menuitem");
+    el4.setAttribute("label", "🔁 API: " + _apiName);
+    el4.setAttribute("id", "vb-menu-api");
+    el4.addEventListener("command", function() {
+      const newApi = _apiName === "youdao" ? "dictionary" : "youdao";
+      _setAPI(newApi);
+      win.alert("✅ Switched to: " + newApi);
+    });
+    pop.appendChild(el4);
   } catch(e: any) { Zotero.debug("VocabBuilder: addMenu: " + e); }
 }
 
@@ -292,10 +416,6 @@ function addMainWindowKeys(win: any) {
     }
   });
 }
-
-
-
-
 function exportVocab(win: any) {
   try {
     const json = JSON.stringify({ exported: new Date().toISOString(), total: _ws.length, words: _ws }, null, 2);
@@ -323,7 +443,7 @@ async function onStartup() {
       if (await IOUtils.exists(_fp)) {
         const data = await IOUtils.readJSON(_fp);
         if (Array.isArray(data)) _ws = data;
-        else if (data && typeof data === "object") { _ws = data.words || []; _noteID = data.noteID || null; }
+        else if (data && typeof data === "object") { _ws = data.words || []; _noteID = data.noteID || null; _apiName = data.api || "youdao"; }
       }
     } catch(e) {}
 
@@ -332,6 +452,13 @@ async function onStartup() {
 
     for (const w of Zotero.getMainWindows()) { addMenu(w); addMainWindowKeys(w); }
 
+    registerNoteObserver();
+    // Retry pending words when coming online
+    for (const w of Zotero.getMainWindows()) {
+      try {
+        (w as any).addEventListener("online", () => { setTimeout(_retryPending, 3000); });
+      } catch(e) {}
+    }
     _syncNote();
     addon.data.initialized = true;
   } catch(e: any) {}
