@@ -213,58 +213,68 @@ function _retryPending() {
   if (retried > 0) pwNotify("🔄 Retrying " + retried + " pending words");
 }
 
-/* ========== Menu ========== */
-function addMenu(win: any) {
+/* ========== Preferences Panel ========== */
+async function onPrefsEvent(type: string, data: any) {
+  if (type !== 'load' || !data?.window) return;
   try {
-    const doc = win.document;
-    if (doc.getElementById("vb-sep")) return;
-    const pop = doc.getElementById("menu_ToolsPopup");
-    if (!pop) return;
-
-    const sep = doc.createXULElement("menuseparator");
-    sep.setAttribute("id", "vb-sep"); pop.appendChild(sep);
-
-    const el1 = doc.createXULElement("menuitem");
-    el1.setAttribute("label", "📚 Vocab");
-    el1.setAttribute("id", "vb-menu-vocab");
-    el1.addEventListener("command", function() { openVocabNote(win); });
-    pop.appendChild(el1);
-
-    const el2 = doc.createXULElement("menuitem");
-    el2.setAttribute("label", "+ Quick Add Word");
-    el2.setAttribute("id", "vb-menu-add");
-    el2.addEventListener("command", function() {
-      const w = win.prompt("Enter word:", "");
-      if (w?.trim()) {
-        addWord(w.trim(), "", "").then(r => {
-          if (r) pwNotify("✅ Added: " + r.word);
-          else pwNotify("⏭ Duplicate or invalid word.");
-        }).catch(e => { Zotero.debug("VocabBuilder: add: " + e); });
-      }
-    });
-    pop.appendChild(el2);
-
-    const el4 = doc.createXULElement("menuitem");
-    el4.setAttribute("label", "🔁 API: " + _apiName);
-    el4.setAttribute("id", "vb-menu-api");
-    el4.addEventListener("command", function() {
-      _setAPI(_apiName === "youdao" ? "dictionary" : "youdao");
-      win.alert("✅ Switched to: " + _apiName);
-    });
-    pop.appendChild(el4);
-  } catch(e: any) { Zotero.debug("VocabBuilder: addMenu: " + e); }
+    const doc = data.window.document;
+    // Open note button
+    const openBtn = doc.getElementById("vb-open-note");
+    if (openBtn) openBtn.addEventListener("command", () => _openVocabNote());
+    // Word count
+    const countSpan = doc.getElementById("vb-word-count");
+    if (countSpan) countSpan.textContent = _ws.length + " words";
+    // Quick add
+    const input = doc.getElementById("vb-quick-input") as any;
+    const addBtn = doc.getElementById("vb-quick-add") as any;
+    if (addBtn && input) {
+      const doAdd = () => {
+        const w = input.value?.trim();
+        if (!w) return;
+        input.value = "";
+        addWord(w, "", "").then(r => {
+          if (r) { pwNotify("✅ Added: " + r.word); if (countSpan) countSpan.textContent = _ws.length + " words"; }
+          else pwNotify("⏭ Duplicate");
+        });
+      };
+      addBtn.addEventListener("command", doAdd);
+      input.addEventListener("keydown", (e: any) => { if (e.key === "Enter") doAdd(); });
+    }
+    // API select
+    const sel = doc.getElementById("vb-api-select") as any;
+    if (sel) {
+      sel.value = _apiName;
+      sel.addEventListener("command", () => { _setAPI(sel.value); });
+    }
+    // Sync from note
+    const syncBtn = doc.getElementById("vb-sync");
+    if (syncBtn) syncBtn.addEventListener("command", () => { _syncFromNote(); if (countSpan) countSpan.textContent = _ws.length + " words"; });
+  } catch(e) { Zotero.debug("VocabBuilder: prefs: " + e); }
 }
 
-function openVocabNote(win: any) {
+function _openVocabNote() {
   if (_noteID) {
     try { (Zotero.Notes as any).open(_noteID, null, { openInWindow: false }); return; } catch(e) { Zotero.debug("VocabBuilder: openNote: " + e); }
   }
+  try { pwNotify("No vocabulary yet. Add a word first."); } catch(e) {}
+}
+
+function _syncFromNote() {
+  if (!_noteID) return;
   try {
-    _syncNote();
-    setTimeout(() => {
-      if (_noteID) { try { (Zotero.Notes as any).open(_noteID, null, { openInWindow: false }); } catch(e) {} }
-      else { win.alert("No vocabulary yet. Add a word first."); }
-    }, 3000);
+    const note = Zotero.Items.get(_noteID);
+    if (!note) return;
+    const html = note.getNote();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const kept: string[] = [];
+    doc.querySelectorAll('li b').forEach((b: any) => {
+      const w = clean(b.textContent || '');
+      if (w) kept.push(w);
+    });
+    const before = _ws.length;
+    _ws = _ws.filter((w: any) => kept.includes(w.word));
+    if (_ws.length < before) pwNotify("🗑 Removed " + (before - _ws.length) + " deletions");
+    else pwNotify("✅ Note already in sync");
   } catch(e) {}
 }
 
@@ -369,7 +379,7 @@ async function onStartup() {
     pollReaders();
     setInterval(pollReaders, 3000);
 
-    for (const w of Zotero.getMainWindows()) { addMenu(w); addMainWindowKeys(w); }
+    for (const w of Zotero.getMainWindows()) { addMainWindowKeys(w); }
 
     registerNoteObserver();
     for (const w of Zotero.getMainWindows()) { try { (w as any).addEventListener("online", () => { setTimeout(_retryPending, 3000); }); } catch(e) {} }
@@ -378,11 +388,11 @@ async function onStartup() {
   } catch(e: any) {}
 }
 
-async function onMainWindowLoad(win: _ZoteroTypes.MainWindow) { addMenu(win as any); addMainWindowKeys(win as any); }
+async function onMainWindowLoad(win: _ZoteroTypes.MainWindow) { addMainWindowKeys(win as any); }
 
 function onShutdown() {
   addon.data.alive = false;
   delete (Zotero as any)[config.addonInstance];
 }
 
-export default { onStartup, onShutdown, onMainWindowLoad, onMainWindowUnload: function(){}, onNotify: function(){}, onPrefsEvent: async function(){}, onShortcuts: function(){} };
+export default { onStartup, onShutdown, onMainWindowLoad, onMainWindowUnload: function(){}, onNotify: function(){}, onPrefsEvent, onShortcuts: function(){} };
