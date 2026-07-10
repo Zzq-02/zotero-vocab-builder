@@ -41,32 +41,53 @@ function _setAPI(name: string) {
   _sv(); // save to JSON
 }
 
-// YouDao free web API (English ↔ Chinese, no key needed)
+// XMLHttpRequest wrapper (works reliably in Zotero sandbox)
+function _xhr(url: string, type: "json" | "text"): Promise<any> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  return new Promise((resolve) => {
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open("GET", url, true);
+      xhr.timeout = 10000;
+      xhr.onload = () => {
+        if (xhr.status !== 200) { resolve(null); return; }
+        resolve(type === "json" ? JSON.parse(xhr.responseText) : xhr.responseText);
+      };
+      xhr.onerror = () => resolve(null);
+      xhr.ontimeout = () => resolve(null);
+      xhr.send();
+    } catch(e) { resolve(null); }
+  });
+}
+
+// YouDao dict API (XML, returns Chinese translations)
 async function _youdao(text: string): Promise<{ trans: string; def: string } | null> {
   try {
-    const r = await fetch(
-      `http://fanyi.youdao.com/translate?&i=${encodeURIComponent(text)}&doctype=json&type=EN2ZH_CN`,
-      { signal: AbortSignal.timeout(8000) }
-    );
-    if (!r.ok) return null;
-    const d: any = await r.json();
-    if (d.errorCode === 0 && d.translateResult?.[0]?.[0]?.tgt) {
-      return { trans: d.translateResult[0][0].tgt, def: "" };
+    const xml = await _xhr(`http://dict.youdao.com/fsearch?q=${encodeURIComponent(text)}`, "text");
+    if (!xml) return null;
+    const xmlStr = String(xml);
+    const doc = new DOMParser().parseFromString(xmlStr, "text/xml");
+    const trans: string[] = [];
+    doc.querySelectorAll("custom-translation translation content").forEach((n: any) => {
+      const t = n.textContent?.trim();
+      if (t && !trans.includes(t)) trans.push(t);
+    });
+    if (!trans.length) {
+      doc.querySelectorAll("web-translation trans value").forEach((n: any) => {
+        const t = n.textContent?.trim();
+        if (t && !trans.includes(t)) trans.push(t);
+      });
     }
-    return null;
+    return trans.length ? { trans: trans[0], def: trans.slice(1).join("; ") || "" } : null;
   } catch (e) { return null; }
 }
 
 // Free Dictionary API (English definitions + phonetics)
 async function _dict(word: string): Promise<{ def: string; pos: string; phone: string } | null> {
   try {
-    const r = await fetch(
-      `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`,
-      { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8000) }
+    const d: any = await _xhr(
+      `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`, "json"
     );
-    if (r.status === 404) return { def: "[Not found]", pos: "", phone: "" };
-    if (!r.ok) return null;
-    const d: any = await r.json();
     if (!d?.[0]) return null;
     const e = d[0];
     let def = "", pos = "", phone = e.phonetic || "";
@@ -110,13 +131,22 @@ function _userLibID(): number {
 }
 
 let _noteTimer: any = null;
-let _noteSyncing = false;
+let _syncBusy = false;     // prevents concurrent sync races
+let _syncPending = false;  // deferred re-sync after concurrent skip
 
 function _syncNote() {
   if (_noteTimer) clearTimeout(_noteTimer);
   _noteTimer = setTimeout(async () => {
-    try { await _doSyncNote(); } catch(e) { Zotero.debug("VocabBuilder: Note sync: " + e); }
+    await _doSyncNoteSafe();
   }, 2000);
+}
+
+async function _doSyncNoteSafe(): Promise<void> {
+  if (_syncBusy) { _syncPending = true; return; }
+  _syncBusy = true;
+  try { await _doSyncNote(); } catch(e) { Zotero.debug("VocabBuilder: sync: " + e); }
+  _syncBusy = false;
+  if (_syncPending) { _syncPending = false; _doSyncNoteSafe(); }
 }
 
 async function _doSyncNote(): Promise<void> {
@@ -165,43 +195,15 @@ async function _doSyncNote(): Promise<void> {
   }
   html += `</ul></div>`;
 
-  _noteSyncing = true;
   note.setNote(html);
   await note.saveTx({ notifierData: {} });
-  try { await note.reload(); Zotero.Notifier.trigger('modify', 'item', [note.id]); } catch(e) {}
-  _noteSyncing = false;
+  try { await note.reload(); } catch(e) {}
 }
 
-/* ========== Observe note edits (bidirectional sync) ========== */
-function registerNoteObserver() {
-  try {
-    Zotero.Notifier.registerObserver({
-      notify: (event: string, type: string, ids: any[]) => {
-        if (_noteSyncing) return;
-        if (event !== 'modify' || type !== 'item') return;
-        if (!_noteID || !ids.includes(_noteID)) return;
-        // User edited the vocab note — read it back and sync deletions
-        try {
-          const note = Zotero.Items.get(_noteID);
-          if (!note) return;
-          const html = note.getNote();
-          // Extract words from <b> tags in the note
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(html, 'text/html');
-          const kept: string[] = [];
-          doc.querySelectorAll('li b').forEach((b: any) => {
-            const w = clean(b.textContent || '');
-            if (w) kept.push(w);
-          });
-          // Remove words that user deleted from note
-          const before = _ws.length;
-          _ws = _ws.filter((w: any) => kept.includes(w.word));
-          if (_ws.length < before) { _sv(); pwNotify("🗑 Synced note deletion"); }
-        } catch(e) { Zotero.debug("VocabBuilder: note observer: " + e); }
-      }
-    }, ['item'], 'vocab-builder');
-  } catch(e) { Zotero.debug("VocabBuilder: observer: " + e); }
-}
+/* ========== Note observer disabled (causes overwrite race) ==========
+ * If we later add bidirectional sync, ensure _noteSyncing covers the
+ * entire window between saveTx and the notifier callback.
+ */
 
 /* ========== Core Word Functions ========== */
 async function addWord(word:string, ctx:string, src:string): Promise<any> {
@@ -216,24 +218,38 @@ async function addWord(word:string, ctx:string, src:string): Promise<any> {
     created: new Date().toISOString(),
     status: "pending", tries: 0
   };
-  _ws.unshift(e); _sv();
+  _ws.unshift(e);
 
+  // Note first (immediate, race-free), JSON in background, translation in background
+  _doSyncNoteSafe();
+  _sv();
   _backgroundSync(e, c);
   return e;
 }
 
 async function _backgroundSync(e: any, c: string) {
   try {
-    if (navigator.onLine) {
+    const online = typeof navigator !== "undefined" ? navigator.onLine : true;
+    if (online) {
       const r = await _translate(c);
       e.trans = r.trans; e.def = r.def; e.pos = r.pos; e.phone = r.phone;
       e.status = r.trans || r.def ? "completed" : "failed";
-      if (e.status === "failed") e.tries = 1;
+      if (e.status === "failed") {
+        e.tries = 1;
+        pwNotify("❌ Translation failed for: " + c);
+      } else {
+        if (r.trans) pwNotify("🌐 " + c + " → " + r.trans);
+        else if (r.def) pwNotify("📖 " + c + ": " + r.def.substring(0, 40));
+      }
     } else {
       e.status = "pending";
+      pwNotify("📴 Offline, will retry later: " + c);
     }
-    _syncNote();
-  } catch(e) { Zotero.debug("VocabBuilder: bg sync: " + e); }
+    _doSyncNoteSafe();
+  } catch(err) {
+    pwNotify("❌ Error: " + ((err as any)?.message || err));
+    Zotero.debug("VocabBuilder: bg sync: " + err);
+  }
 }
 
 // Retry pending/failed words when coming online
@@ -250,7 +266,7 @@ function _retryPending() {
       w.pos = r.pos || w.pos;
       w.phone = r.phone || w.phone;
       w.status = r.trans || r.def ? "completed" : w.status;
-      _sv(); _syncNote();
+      _sv(); _doSyncNoteSafe();
     });
     retried++;
   }
@@ -452,7 +468,6 @@ async function onStartup() {
 
     for (const w of Zotero.getMainWindows()) { addMenu(w); addMainWindowKeys(w); }
 
-    registerNoteObserver();
     // Retry pending words when coming online
     for (const w of Zotero.getMainWindows()) {
       try {
