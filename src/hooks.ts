@@ -41,83 +41,58 @@ function _setAPI(name: string) {
   _sv(); // save to JSON
 }
 
-// XMLHttpRequest wrapper (works reliably in Zotero sandbox)
-function _xhr(url: string, type: "json" | "text"): Promise<any> {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  return new Promise((resolve) => {
+// Direct fetch (tried multiple methods, using simplest approach)
+async function _fetchAPI(url: string): Promise<string | null> {
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    return r.ok ? await r.text() : null;
+  } catch(e) {
     try {
-      const xhr = new XMLHttpRequest();
-      xhr.open("GET", url, true);
-      xhr.timeout = 10000;
-      xhr.onload = () => {
-        if (xhr.status !== 200) { resolve(null); return; }
-        resolve(type === "json" ? JSON.parse(xhr.responseText) : xhr.responseText);
-      };
-      xhr.onerror = () => resolve(null);
-      xhr.ontimeout = () => resolve(null);
-      xhr.send();
-    } catch(e) { resolve(null); }
-  });
-}
-
-// YouDao dict API (XML, returns Chinese translations)
-async function _youdao(text: string): Promise<{ trans: string; def: string } | null> {
-  try {
-    const xml = await _xhr(`http://dict.youdao.com/fsearch?q=${encodeURIComponent(text)}`, "text");
-    if (!xml) return null;
-    const xmlStr = String(xml);
-    const doc = new DOMParser().parseFromString(xmlStr, "text/xml");
-    const trans: string[] = [];
-    doc.querySelectorAll("custom-translation translation content").forEach((n: any) => {
-      const t = n.textContent?.trim();
-      if (t && !trans.includes(t)) trans.push(t);
-    });
-    if (!trans.length) {
-      doc.querySelectorAll("web-translation trans value").forEach((n: any) => {
-        const t = n.textContent?.trim();
-        if (t && !trans.includes(t)) trans.push(t);
+      return await new Promise((resolve) => {
+        const x = new XMLHttpRequest();
+        x.open("GET", url, true); x.timeout = 12000;
+        x.onload = () => resolve(x.status === 200 ? x.responseText : null);
+        x.onerror = () => resolve(null); x.ontimeout = () => resolve(null);
+        x.send();
       });
-    }
-    return trans.length ? { trans: trans[0], def: trans.slice(1).join("; ") || "" } : null;
-  } catch (e) { return null; }
+    } catch(e2) { return null; }
+  }
 }
 
-// Free Dictionary API (English definitions + phonetics)
-async function _dict(word: string): Promise<{ def: string; pos: string; phone: string } | null> {
-  try {
-    const d: any = await _xhr(
-      `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`, "json"
-    );
-    if (!d?.[0]) return null;
-    const e = d[0];
-    let def = "", pos = "", phone = e.phonetic || "";
-    if (e.meanings) for (const m of e.meanings) {
-      if (!pos) pos = m.partOfSpeech || "";
-      if (m.definitions?.[0] && !def) def = m.definitions[0].definition;
-    }
-    return { def, pos, phone };
-  } catch (e) { return null; }
-}
-
-// Unified translate: tries selected API, then falls back
+// Simple translation: tries Free Dictionary API, falls back to YouDao XML
 async function _translate(word: string): Promise<{ trans: string; def: string; pos: string; phone: string }> {
-  const result = { trans: "", def: "", pos: "", phone: "" };
-  const api = _apiPref();
-  // Step 1: translate (YouDao gives Chinese, Dictionary gives English def)
-  if (api === "youdao") {
-    const y = await _youdao(word);
-    if (y) result.trans = y.trans;
-    else { const d = await _dict(word); if (d) { result.def = d.def; result.pos = d.pos; result.phone = d.phone; } }
-  } else {
-    const d = await _dict(word);
-    if (d) { result.def = d.def; result.pos = d.pos; result.phone = d.phone; }
+  const r = { trans: "", def: "", pos: "", phone: "" };
+  if (_apiName === "dictionary") {
+    const raw = await _fetchAPI(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
+    if (raw) {
+      try {
+        const d = JSON.parse(raw)?.[0];
+        if (d) { for (const m of d.meanings || []) { if (!r.pos) r.pos = m.partOfSpeech || ""; if (!r.def && m.definitions?.[0]) r.def = m.definitions[0].definition; } r.phone = d.phonetic || ""; }
+      } catch(e) {}
+    }
+    return r;
   }
-  // Step 2: if YouDao didn't give a definition, try to get English def too
-  if (api === "youdao" && !result.def) {
-    const d = await _dict(word);
-    if (d) { result.def = d.def; result.pos = d.pos; result.phone = d.phone; }
+  // youdao mode
+  const raw = await _fetchAPI(`http://dict.youdao.com/fsearch?q=${encodeURIComponent(word)}`);
+  if (raw) {
+    try {
+      const doc = new DOMParser().parseFromString(raw, "text/xml");
+      const ts: string[] = [];
+      doc.querySelectorAll("translation content").forEach((n: any) => { const t = n.textContent?.trim(); if (t && !ts.includes(t)) ts.push(t); });
+      if (ts.length) r.trans = ts[0];
+    } catch(e) {}
   }
-  return result;
+  // fallback: dictionary def
+  if (!r.trans && !r.def) {
+    const raw2 = await _fetchAPI(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
+    if (raw2) {
+      try {
+        const d = JSON.parse(raw2)?.[0];
+        if (d) { for (const m of d.meanings || []) { if (!r.pos) r.pos = m.partOfSpeech || ""; if (!r.def && m.definitions?.[0]) r.def = m.definitions[0].definition; } r.phone = d.phonetic || ""; }
+      } catch(e) {}
+    }
+  }
+  return r;
 }
 
 /* ========== Note Management ========== */
