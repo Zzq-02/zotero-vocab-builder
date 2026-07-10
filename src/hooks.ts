@@ -175,6 +175,34 @@ async function _doSyncNote(): Promise<void> {
   try { await note.reload(); } catch(e) {}
 }
 
+/* ========== Observe note edits (bidirectional sync) ========== */
+function registerNoteObserver() {
+  try {
+    Zotero.Notifier.registerObserver({
+      notify: (event: string, type: string, ids: any[]) => {
+        if (_syncBusy) return; // our own save — ignore
+        if (event !== 'modify' || type !== 'item') return;
+        if (!_noteID || !ids.includes(_noteID)) return;
+        try {
+          const note = Zotero.Items.get(_noteID);
+          if (!note) return;
+          const html = note.getNote();
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(html, 'text/html');
+          const kept: string[] = [];
+          doc.querySelectorAll('li b').forEach((b: any) => {
+            const w = clean(b.textContent || '');
+            if (w) kept.push(w);
+          });
+          const before = _ws.length;
+          _ws = _ws.filter((w: any) => kept.includes(w.word));
+          if (_ws.length < before) { _sv(); pwNotify("🗑 Synced note deletion"); }
+        } catch(e) {}
+      }
+    }, ['item'], 'vocab-builder');
+  } catch(e) { Zotero.debug("VocabBuilder: observer fail: " + e); }
+}
+
 /* ========== Note observer disabled (causes overwrite race) ==========
  * If we later add bidirectional sync, ensure _noteSyncing covers the
  * entire window between saveTx and the notifier callback.
@@ -443,6 +471,7 @@ async function onStartup() {
 
     for (const w of Zotero.getMainWindows()) { addMenu(w); addMainWindowKeys(w); }
 
+    registerNoteObserver();
     // Retry pending words when coming online
     for (const w of Zotero.getMainWindows()) {
       try {
