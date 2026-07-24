@@ -21,7 +21,7 @@ import {
   type VocabEntry,
 } from "./note-state";
 import { showNotification, type NotificationTone } from "./notifications";
-import { loadPersistedState, savePersistedState } from "./state-store";
+import { clearPersistedState, loadPersistedState } from "./state-store";
 import {
   applyDocumentLanguage,
   DEFAULT_UI_LANGUAGE,
@@ -79,7 +79,6 @@ const state: {
   noteID: number | null;
   syncBusy: boolean;
   syncPending: boolean;
-  stateSaveChain: Promise<void>;
   apiName: APIProvider;
   uiLanguage: UILanguage;
   loadPromise: Promise<void> | null;
@@ -89,7 +88,6 @@ const state: {
   noteID: readStoredNoteID(),
   syncBusy: false,
   syncPending: false,
-  stateSaveChain: Promise.resolve(),
   apiName: "youdao",
   uiLanguage: DEFAULT_UI_LANGUAGE,
   loadPromise: null,
@@ -143,10 +141,6 @@ function userLibID(): number {
   }
 }
 
-function snapshotEntries(entries = state.entries): VocabEntry[] {
-  return entries.map((entry) => ({ ...entry }));
-}
-
 function createRenderableEntries(entries = state.entries): NoteEntry[] {
   return entries.map((entry) => ({ word: entry.word, entry }));
 }
@@ -157,21 +151,6 @@ function renderCurrentNoteHTML(): string {
     new Date(),
     state.uiLanguage,
   );
-}
-
-function queueStateSave(): Promise<void> {
-  const snapshot = {
-    noteID: state.noteID,
-    entries: snapshotEntries(),
-  };
-
-  state.stateSaveChain = state.stateSaveChain
-    .then(() => savePersistedState(snapshot))
-    .catch((e) => {
-      Zotero.debug("VocabBuilder: prefs save state: " + e);
-    });
-
-  return state.stateSaveChain;
 }
 
 async function isDup(word: string): Promise<boolean> {
@@ -408,7 +387,6 @@ async function ensureNote(createIfMissing = true): Promise<any | null> {
     note.addTag(NOTE_TAG);
     await note.saveTx();
     rememberNote(note);
-    await queueStateSave();
 
     if (note?.isNote?.()) return note;
     return await findExistingNote();
@@ -442,18 +420,33 @@ async function syncEntriesFromNote(note?: any): Promise<{
   const changed = !sameEntries(state.entries, nextEntries);
   if (!changed) return { changed: false, count: nextEntries.length };
   state.entries = nextEntries;
-  await queueStateSave();
   refreshWordCount();
   return { changed: true, count: nextEntries.length };
 }
 
-async function hydrateFromNoteIfNeeded(): Promise<void> {
-  if (state.entries.length) return;
+function findLiveEntry(word: string, id?: string): VocabEntry | null {
+  if (id) {
+    const byId = state.entries.find((entry) => entry.id === id);
+    if (byId) return byId;
+  }
+
+  return state.entries.find((entry) => entry.word === word) || null;
+}
+
+async function migrateLegacyStateIfNeeded(): Promise<void> {
+  const legacy = await loadPersistedState();
+  if (legacy.noteID && !state.noteID) {
+    state.noteID = legacy.noteID;
+    storeNoteID(state.noteID);
+  }
 
   const note = await ensureNote(false);
-  if (!note) return;
+  if (!note && legacy.entries.length) {
+    state.entries = legacy.entries;
+    await ensureNote(true);
+  }
 
-  await syncEntriesFromNote(note);
+  await clearPersistedState();
 }
 
 async function syncNoteSafe(): Promise<void> {
@@ -491,8 +484,6 @@ async function syncNote(): Promise<void> {
   try {
     await note.reload();
   } catch (e) {}
-
-  await queueStateSave();
   refreshWordCount();
 }
 
@@ -522,7 +513,6 @@ async function addWord(
     ...state.entries.filter((item) => item.word !== entry.word),
   ];
   refreshWordCount();
-  await queueStateSave();
   await syncNoteSafe();
   void backgroundSync(entry, cleaned);
   return entry;
@@ -530,17 +520,21 @@ async function addWord(
 
 async function backgroundSync(entry: VocabEntry, cleaned: string) {
   try {
+    const targetId = entry.id;
     const online = typeof navigator !== "undefined" ? navigator.onLine : true;
     if (online) {
       const result = await translate(cleaned);
-      entry.trans = result.trans;
-      entry.def = result.def;
-      entry.pos = result.pos;
-      entry.phone = result.phone;
-      entry.status = result.trans || result.def ? "completed" : "failed";
+      const liveEntry = findLiveEntry(cleaned, targetId);
+      if (!liveEntry) return;
 
-      if (entry.status === "failed") {
-        entry.tries = Math.max(1, entry.tries || 0);
+      liveEntry.trans = result.trans;
+      liveEntry.def = result.def;
+      liveEntry.pos = result.pos;
+      liveEntry.phone = result.phone;
+      liveEntry.status = result.trans || result.def ? "completed" : "failed";
+
+      if (liveEntry.status === "failed") {
+        liveEntry.tries = Math.max(1, liveEntry.tries || 0);
         notify(
           t(state.uiLanguage, "notify.translationFailed", { word: cleaned }),
           "error",
@@ -551,11 +545,12 @@ async function backgroundSync(entry: VocabEntry, cleaned: string) {
         notify(`${cleaned}: ${result.def.substring(0, 40)}`, "success");
       }
     } else {
-      entry.status = "pending";
+      const liveEntry = findLiveEntry(cleaned, targetId);
+      if (!liveEntry) return;
+      liveEntry.status = "pending";
       notify(t(state.uiLanguage, "notify.offlineRetry", { word: cleaned }));
     }
 
-    await queueStateSave();
     await syncNoteSafe();
     await notifyMainAddon();
   } catch (e) {
@@ -701,7 +696,7 @@ async function showSaveDialog(
 }
 
 async function exportVocabulary(format: ExportFormat, scope: ExportScope) {
-  await ensureLoaded();
+  await ensureLoaded(true);
 
   if (!state.entries.length) {
     notify(t(state.uiLanguage, "notify.noExport"));
@@ -725,7 +720,7 @@ async function exportVocabulary(format: ExportFormat, scope: ExportScope) {
 }
 
 async function openVocabNote() {
-  await ensureLoaded();
+  await ensureLoaded(true);
 
   const note = await ensureNote(state.entries.length > 0);
   if (note) {
@@ -741,7 +736,7 @@ async function openVocabNote() {
 }
 
 async function syncFromNote() {
-  await ensureLoaded();
+  await ensureLoaded(true);
 
   const note = await ensureNote(false);
   if (!note) {
@@ -762,7 +757,7 @@ async function syncFromNote() {
 }
 
 async function quickAddWord() {
-  await ensureLoaded();
+  await ensureLoaded(true);
 
   const input = getPrefsDocument().getElementById("vb-quick-input") as any;
   const word = input?.value?.trim();
@@ -805,7 +800,7 @@ function applyLanguage() {
 }
 
 async function toggleLanguage() {
-  await ensureLoaded();
+  await ensureLoaded(true);
   state.uiLanguage = state.uiLanguage === "zh-CN" ? "en-US" : "zh-CN";
   setPref("uiLanguage", state.uiLanguage);
   applyLanguage();
@@ -849,8 +844,8 @@ function bindControls() {
   bindTextPref("vb-export-scope", "exportScope");
 }
 
-async function ensureLoaded() {
-  if (!state.loadPromise) {
+async function ensureLoaded(forceRefresh = false) {
+  if (forceRefresh || !state.loadPromise) {
     state.loadPromise = loadLatestState().catch((e) => {
       state.loadPromise = null;
       throw e;
@@ -863,18 +858,17 @@ async function ensureLoaded() {
 async function loadLatestState() {
   await Promise.all([Zotero.initializationPromise, Zotero.uiReadyPromise]);
   loadSettingsFromPrefs();
-
-  const persisted = await loadPersistedState();
-  state.noteID = persisted.noteID;
-  state.entries = persisted.entries;
-  storeNoteID(state.noteID);
+  await migrateLegacyStateIfNeeded();
 
   const note = await ensureNote(false);
   if (note) {
     await syncEntriesFromNote(note);
-  } else {
-    await hydrateFromNoteIfNeeded();
+    return;
   }
+
+  state.entries = [];
+  rememberNote(null);
+  refreshWordCount();
 }
 
 async function refreshLatestState() {

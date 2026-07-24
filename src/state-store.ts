@@ -46,6 +46,17 @@ export async function savePersistedState(state: PersistedState): Promise<void> {
   );
 }
 
+export async function clearPersistedState(): Promise<void> {
+  const statePath = getStateFilePath();
+  if (!statePath) return;
+
+  try {
+    if (await IOUtils.exists(statePath)) {
+      await IOUtils.remove(statePath);
+    }
+  } catch (e) {}
+}
+
 function getStateFilePath(): string | null {
   const stateDir = getStateDirPath();
   return stateDir ? PathUtils.join(stateDir, STATE_FILE_NAME) : null;
