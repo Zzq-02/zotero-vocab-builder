@@ -141,6 +141,38 @@ function userLibID(): number {
   }
 }
 
+async function openNoteForEditing(note: any): Promise<boolean> {
+  const noteID = getNoteID(note);
+  if (!noteID) return false;
+
+  for (const win of Zotero.getMainWindows()) {
+    try {
+      if (typeof win.ZoteroPane?.openNoteWindow === "function") {
+        win.ZoteroPane.openNoteWindow(noteID);
+        return true;
+      }
+    } catch (e) {}
+  }
+
+  for (const win of Zotero.getMainWindows()) {
+    try {
+      if (typeof win.ZoteroPane?.selectItem === "function") {
+        win.focus?.();
+        await win.ZoteroPane.selectItem(noteID, true);
+        await win.ZoteroPane.itemSelected?.();
+        return true;
+      }
+    } catch (e) {}
+  }
+
+  try {
+    (Zotero.Notes as any).open(noteID, null, { openInWindow: true });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 function createRenderableEntries(entries = state.entries): NoteEntry[] {
   return entries.map((entry) => ({ word: entry.word, entry }));
 }
@@ -425,12 +457,15 @@ async function syncEntriesFromNote(note?: any): Promise<{
 }
 
 function findLiveEntry(word: string, id?: string): VocabEntry | null {
+  const cleaned = cleanWord(word);
+  if (!cleaned) return null;
+
   if (id) {
     const byId = state.entries.find((entry) => entry.id === id);
-    if (byId) return byId;
+    if (byId && byId.word === cleaned) return byId;
   }
 
-  return state.entries.find((entry) => entry.word === word) || null;
+  return state.entries.find((entry) => entry.word === cleaned) || null;
 }
 
 async function migrateLegacyStateIfNeeded(): Promise<void> {
@@ -524,6 +559,8 @@ async function backgroundSync(entry: VocabEntry, cleaned: string) {
     const online = typeof navigator !== "undefined" ? navigator.onLine : true;
     if (online) {
       const result = await translate(cleaned);
+      const latestNote = await ensureNote(false);
+      if (latestNote) await syncEntriesFromNote(latestNote);
       const liveEntry = findLiveEntry(cleaned, targetId);
       if (!liveEntry) return;
 
@@ -545,6 +582,8 @@ async function backgroundSync(entry: VocabEntry, cleaned: string) {
         notify(`${cleaned}: ${result.def.substring(0, 40)}`, "success");
       }
     } else {
+      const latestNote = await ensureNote(false);
+      if (latestNote) await syncEntriesFromNote(latestNote);
       const liveEntry = findLiveEntry(cleaned, targetId);
       if (!liveEntry) return;
       liveEntry.status = "pending";
@@ -724,12 +763,9 @@ async function openVocabNote() {
 
   const note = await ensureNote(state.entries.length > 0);
   if (note) {
-    try {
-      (Zotero.Notes as any).open(note.id, null, { openInWindow: false });
-      return;
-    } catch (e) {
-      Zotero.debug("VocabBuilder: prefs open note: " + e);
-    }
+    const opened = await openNoteForEditing(note);
+    if (opened) return;
+    Zotero.debug("VocabBuilder: prefs open note failed");
   }
 
   notify(t(state.uiLanguage, "notify.noVocabulary"));

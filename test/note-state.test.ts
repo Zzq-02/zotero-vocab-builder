@@ -31,7 +31,8 @@ describe("note-state", function () {
     );
 
     assert.include(rendered, "legacy <b>alpha</b> row");
-    assert.include(rendered, `data-vb-word="beta"`);
+    assert.include(rendered, `<strong>beta</strong>`);
+    assert.notInclude(rendered, `data-vb-word="beta"`);
     assert.include(rendered, "Total: 2 words");
   });
 
@@ -71,6 +72,9 @@ describe("note-state", function () {
     assert.equal(parsed[0].entry?.status, "failed");
     assert.equal(parsed[0].entry?.tries, 2);
     assert.equal(parsed[0].entry?.trans, "gamma translation");
+    assert.equal(parsed[0].entry?.def, "gamma definition");
+    assert.equal(parsed[0].entry?.pos, "noun");
+    assert.equal(parsed[0].entry?.phone, "ga-ma");
     assert.equal(parsed[0].entry?.ctx, "gamma context");
   });
 
@@ -83,7 +87,7 @@ describe("note-state", function () {
     const html = renderNoteHTML(
       [{ word: entry.word, entry }],
       new Date("2026-07-23T00:00:00.000Z"),
-    ).replace("<b>gamma</b>", "<b></b>");
+    ).replace("<strong>gamma</strong>", "<strong></strong>");
 
     const parsed = parseNoteHTML(html);
 
@@ -134,12 +138,15 @@ describe("note-state", function () {
         { word: failed.word, entry: failed },
       ],
       new Date("2026-07-23T00:00:00.000Z"),
+      "en-US",
     );
 
     assert.include(html, "vb-status-success");
     assert.include(html, "vb-status-failed");
+    assert.include(html, "translation: done");
     assert.notInclude(html, "[OK]");
     assert.notInclude(html, "[ERR]");
+    assert.notInclude(html, "data-vb-word");
   });
 
   it("rebuilds local state entries from note content", function () {

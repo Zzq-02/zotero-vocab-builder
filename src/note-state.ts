@@ -22,8 +22,54 @@ export interface NoteEntry {
   entry?: VocabEntry;
 }
 
+type NoteFieldKey =
+  | "translation"
+  | "definition"
+  | "pos"
+  | "phonetic"
+  | "context";
+
 export const NOTE_TAG = "vocab-builder";
 export const NOTE_SEARCH_MARKER = "Vocabulary List";
+
+const STATUS_SYMBOLS: Record<VocabStatus, string> = {
+  pending: "\u2026",
+  completed: "\u2713",
+  failed: "\u2717",
+};
+
+const STABLE_NOTE_CREATED_AT = "1970-01-01T00:00:00.000Z";
+
+const NOTE_FIELD_LABELS: Record<UILanguage, Record<NoteFieldKey, string>> = {
+  "en-US": {
+    translation: "translation",
+    definition: "definition",
+    pos: "pos",
+    phonetic: "phonetic",
+    context: "context",
+  },
+  "zh-CN": {
+    translation: "\u7ffb\u8bd1",
+    definition: "\u91ca\u4e49",
+    pos: "\u8bcd\u6027",
+    phonetic: "\u97f3\u6807",
+    context: "\u8bed\u5883",
+  },
+};
+
+const NOTE_FIELD_ALIASES: Record<NoteFieldKey, string[]> = {
+  translation: ["translation", "\u7ffb\u8bd1"],
+  definition: ["definition", "\u91ca\u4e49"],
+  pos: ["pos", "part of speech", "\u8bcd\u6027"],
+  phonetic: ["phonetic", "phone", "\u97f3\u6807"],
+  context: [
+    "context",
+    "example",
+    "\u8bed\u5883",
+    "\u4f8b\u53e5",
+    "\u4e0a\u4e0b\u6587",
+  ],
+};
 
 export function cleanWord(text: string): string {
   if (!text) return "";
@@ -65,8 +111,10 @@ export function parseNoteHTML(html: string): NoteEntry[] {
   const matches = html.match(/<li\b[^>]*>[\s\S]*?<\/li>/gi) || [];
 
   for (const rawHTML of matches) {
-    const structured = parseStructuredEntry(rawHTML);
-    const fallbackWord = readMarkedWord(rawHTML);
+    const structured =
+      parseVisibleStructuredEntry(rawHTML) || parseStructuredEntry(rawHTML);
+    const fallbackWord =
+      readMarkedWord(rawHTML) || readFirstVisibleWord(rawHTML);
     const word = structured?.word || fallbackWord;
 
     if (!word || seen.has(word)) continue;
@@ -94,16 +142,14 @@ export function extractMutableEntries(entries: NoteEntry[]): VocabEntry[] {
   });
 }
 
-export function buildEntriesFromNoteEntries(
-  entries: NoteEntry[],
-): VocabEntry[] {
+export function buildEntriesFromNoteEntries(entries: NoteEntry[]): VocabEntry[] {
   const rebuilt: VocabEntry[] = [];
   const seen = new Set<string>();
 
   for (const item of entries) {
     const nextEntry = item.entry
       ? { ...item.entry }
-      : createVocabEntry(item.word, { status: "completed" });
+      : createStableNoteEntry(item.word, { status: "completed" });
 
     if (!nextEntry.word || seen.has(nextEntry.word)) continue;
     seen.add(nextEntry.word);
@@ -151,7 +197,7 @@ export function renderNoteHTML(
 ): string {
   const items = entries
     .map((item) => {
-      if (item.entry) return renderStructuredEntry(item.entry);
+      if (item.entry) return renderStructuredEntry(item.entry, language);
       return item.rawHTML || "";
     })
     .join("");
@@ -185,55 +231,86 @@ function dedupeSessionEntries(entries: VocabEntry[]): VocabEntry[] {
   return deduped;
 }
 
-function renderStructuredEntry(entry: VocabEntry): string {
+function createStableNoteEntry(
+  word: string,
+  overrides: Partial<VocabEntry> = {},
+): VocabEntry {
+  const cleaned = cleanWord(word);
+  return createVocabEntry(cleaned, {
+    id: overrides.id || buildStableEntryID(cleaned),
+    created: overrides.created || STABLE_NOTE_CREATED_AT,
+    ...overrides,
+  });
+}
+
+function buildStableEntryID(word: string): string {
+  return `note:${cleanWord(word).replace(/\s+/g, "-")}`;
+}
+
+function renderStructuredEntry(
+  entry: VocabEntry,
+  language: UILanguage,
+): string {
+  const attrs = [
+    `class="vb-entry"`,
+    `data-vb-id="${escapeHtml(entry.id)}"`,
+    `data-vb-created="${escapeHtml(entry.created)}"`,
+    `data-vb-tries="${String(entry.tries || 0)}"`,
+    `data-vb-status="${escapeHtml(entry.status)}"`,
+  ];
+  if (entry.src) {
+    attrs.push(`data-vb-src="${escapeHtml(entry.src)}"`);
+  }
+
   const icon =
     entry.status === "completed"
-      ? `<span class="vb-status vb-status-success" style="color:#23a55a;font-weight:700;">&#10003;</span>`
+      ? `<span class="vb-status vb-status-success" style="color:#23a55a;font-weight:700;">${STATUS_SYMBOLS.completed}</span>`
       : entry.status === "failed"
-        ? `<span class="vb-status vb-status-failed" style="color:#d64545;font-weight:700;">&#10007;</span>`
-        : `<span class="vb-status vb-status-pending" style="color:#7b8a82;font-weight:700;">&#8230;</span>`;
-  const phone = entry.phone
-    ? ` <span class="vb-phone">/${escapeHtml(entry.phone)}/</span>`
-    : "";
-  const pos = entry.pos
-    ? ` <i class="vb-pos">(${escapeHtml(entry.pos)})</i>`
-    : "";
-  const trans = entry.trans
-    ? ` <span class="vb-trans" style="color:#c00;">${escapeHtml(entry.trans)}</span>`
-    : "";
-  const def = entry.def
-    ? ` <span class="vb-def">- ${escapeHtml(entry.def)}</span>`
-    : "";
+        ? `<span class="vb-status vb-status-failed" style="color:#d64545;font-weight:700;">${STATUS_SYMBOLS.failed}</span>`
+        : `<span class="vb-status vb-status-pending" style="color:#7b8a82;font-weight:700;">${STATUS_SYMBOLS.pending}</span>`;
+  const fields = [
+    renderVisibleField("translation", entry.trans, language),
+    renderVisibleField("definition", entry.def, language),
+    renderVisibleField("pos", entry.pos, language),
+    renderVisibleField(
+      "phonetic",
+      entry.phone ? `/${entry.phone}/` : "",
+      language,
+    ),
+  ].join("");
   const ctx = entry.ctx
-    ? `<br><span class="vb-ctx" style="color:#888;">"${escapeHtml(entry.ctx)}"</span>`
+    ? `<br>${renderVisibleField("context", entry.ctx, language, false)}`
     : "";
 
   return [
-    `<li class="vb-entry"`,
-    ` data-vb-id="${escapeHtml(entry.id)}"`,
-    ` data-vb-word="${escapeHtml(entry.word)}"`,
-    ` data-vb-status="${escapeHtml(entry.status)}"`,
-    ` data-vb-tries="${escapeHtml(String(entry.tries))}"`,
-    ` data-vb-created="${escapeHtml(entry.created)}"`,
-    ` data-vb-trans="${escapeHtml(entry.trans)}"`,
-    ` data-vb-def="${escapeHtml(entry.def)}"`,
-    ` data-vb-pos="${escapeHtml(entry.pos)}"`,
-    ` data-vb-phone="${escapeHtml(entry.phone)}"`,
-    ` data-vb-ctx="${escapeHtml(entry.ctx)}"`,
-    ` data-vb-src="${escapeHtml(entry.src)}">`,
-    `${icon} <b>${escapeHtml(entry.word)}</b>${phone}${pos}${trans}${def}${ctx}</li>`,
+    `<li ${attrs.join(" ")}>`,
+    `${icon} <strong>${escapeHtml(entry.word)}</strong>${fields}${ctx}</li>`,
   ].join("");
+}
+
+function renderVisibleField(
+  key: NoteFieldKey,
+  value: string,
+  language: UILanguage,
+  leadingSpace = true,
+): string {
+  if (!value) return "";
+  const label =
+    NOTE_FIELD_LABELS[language]?.[key] || NOTE_FIELD_LABELS["en-US"][key];
+  const spacer = leadingSpace ? " " : "";
+  return `${spacer}<span>${label}: ${escapeHtml(value)}</span>`;
 }
 
 function parseStructuredEntry(rawHTML: string): VocabEntry | null {
   const attrWord = cleanWord(readAttr(rawHTML, "data-vb-word"));
   if (!attrWord || !visibleWordStillPresent(rawHTML, attrWord)) return null;
 
-  return createVocabEntry(attrWord, {
-    id: readAttr(rawHTML, "data-vb-id"),
+  return createStableNoteEntry(attrWord, {
+    id: readAttr(rawHTML, "data-vb-id") || buildStableEntryID(attrWord),
     status: normalizeStatus(readAttr(rawHTML, "data-vb-status")),
     tries: Number.parseInt(readAttr(rawHTML, "data-vb-tries") || "0", 10) || 0,
-    created: readAttr(rawHTML, "data-vb-created") || new Date().toISOString(),
+    created:
+      readAttr(rawHTML, "data-vb-created") || STABLE_NOTE_CREATED_AT,
     trans: readAttr(rawHTML, "data-vb-trans"),
     def: readAttr(rawHTML, "data-vb-def"),
     pos: readAttr(rawHTML, "data-vb-pos"),
@@ -243,25 +320,106 @@ function parseStructuredEntry(rawHTML: string): VocabEntry | null {
   });
 }
 
+function parseVisibleStructuredEntry(rawHTML: string): VocabEntry | null {
+  const text = readVisibleText(rawHTML);
+  if (!looksLikeRenderedEntry(text)) return null;
+
+  const word = readMarkedWord(rawHTML) || readFirstVisibleWord(rawHTML);
+  if (!word) return null;
+
+  return createStableNoteEntry(word, {
+    id: readAttr(rawHTML, "data-vb-id") || buildStableEntryID(word),
+    status: readVisibleStatus(
+      text,
+      normalizeStatus(readAttr(rawHTML, "data-vb-status")),
+    ),
+    tries: Number.parseInt(readAttr(rawHTML, "data-vb-tries") || "0", 10) || 0,
+    created:
+      readAttr(rawHTML, "data-vb-created") || STABLE_NOTE_CREATED_AT,
+    trans: readVisibleFieldValue(text, NOTE_FIELD_ALIASES.translation),
+    def: readVisibleFieldValue(text, NOTE_FIELD_ALIASES.definition),
+    pos: readVisibleFieldValue(text, NOTE_FIELD_ALIASES.pos),
+    phone: normalizePhone(
+      readVisibleFieldValue(text, NOTE_FIELD_ALIASES.phonetic),
+    ),
+    ctx: readVisibleFieldValue(text, NOTE_FIELD_ALIASES.context),
+    src: readAttr(rawHTML, "data-vb-src"),
+  });
+}
+
 function readMarkedWord(rawHTML: string): string {
   const match = rawHTML.match(/<(?:b|strong)>([\s\S]*?)<\/(?:b|strong)>/i);
   return cleanWord(decodeHtml(match?.[1] || ""));
+}
+
+function readFirstVisibleWord(rawHTML: string): string {
+  const text = readVisibleText(rawHTML).replace(/[\u2713\u2717\u2026]/g, " ");
+  const labelMatch = text.match(
+    new RegExp(`(?:${visibleFieldLabels().map(escapeRegExp).join("|")})\\s*[:\uFF1A]`, "i"),
+  );
+  const candidateText = labelMatch ? text.slice(0, labelMatch.index) : text;
+  return cleanWord(
+    candidateText.match(/[a-zA-Z][a-zA-Z'\-]*(?: [a-zA-Z][a-zA-Z'\-]*)?/)?.[0] ||
+      "",
+  );
 }
 
 function visibleWordStillPresent(rawHTML: string, word: string): boolean {
   const markedWord = readMarkedWord(rawHTML);
   if (markedWord) return markedWord === word;
 
-  const visibleText = cleanWord(
-    decodeHtml(
-      rawHTML
-        .replace(/<br\s*\/?>/gi, " ")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/\s+/g, " ")
-        .trim(),
-    ),
+  return readFirstVisibleWord(rawHTML) === word;
+}
+
+function readVisibleText(rawHTML: string): string {
+  return decodeHtml(
+    rawHTML
+      .replace(/<br\s*\/?>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim(),
   );
-  return visibleText.startsWith(word);
+}
+
+function looksLikeRenderedEntry(text: string): boolean {
+  return (
+    /[\u2713\u2717\u2026]/.test(text) ||
+    visibleFieldLabels().some((label) =>
+      new RegExp(`${escapeRegExp(label)}\\s*[:\uFF1A]`, "i").test(text),
+    )
+  );
+}
+
+function readVisibleStatus(text: string, fallback: VocabStatus): VocabStatus {
+  if (text.includes(STATUS_SYMBOLS.failed)) return "failed";
+  if (text.includes(STATUS_SYMBOLS.completed)) return "completed";
+  if (text.includes(STATUS_SYMBOLS.pending)) return "pending";
+  return fallback;
+}
+
+function readVisibleFieldValue(text: string, labels: string[]): string {
+  const allLabels = visibleFieldLabels().map(escapeRegExp).join("|");
+
+  for (const label of labels) {
+    const pattern = new RegExp(
+      `${escapeRegExp(label)}\\s*[:\uFF1A]\\s*([\\s\\S]*?)(?=\\s+(?:${allLabels})\\s*[:\uFF1A]|$)`,
+      "i",
+    );
+    const value = text.match(pattern)?.[1]?.trim() || "";
+    if (value) return value;
+  }
+
+  return "";
+}
+
+function visibleFieldLabels(): string[] {
+  return Array.from(
+    new Set(Object.values(NOTE_FIELD_ALIASES).flatMap((labels) => labels)),
+  );
+}
+
+function normalizePhone(value: string): string {
+  return value.replace(/^\/+|\/+$/g, "").trim();
 }
 
 function readAttr(rawHTML: string, attrName: string): string {
@@ -280,6 +438,10 @@ function escapeHtml(value: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function decodeHtml(value: string): string {

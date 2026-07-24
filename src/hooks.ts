@@ -128,6 +128,38 @@ function _userLibID(): number {
   }
 }
 
+async function openNoteForEditing(note: any): Promise<boolean> {
+  const noteID = getNoteID(note);
+  if (!noteID) return false;
+
+  for (const win of Zotero.getMainWindows()) {
+    try {
+      if (typeof win.ZoteroPane?.openNoteWindow === "function") {
+        win.ZoteroPane.openNoteWindow(noteID);
+        return true;
+      }
+    } catch (e) {}
+  }
+
+  for (const win of Zotero.getMainWindows()) {
+    try {
+      if (typeof win.ZoteroPane?.selectItem === "function") {
+        win.focus?.();
+        await win.ZoteroPane.selectItem(noteID, true);
+        await win.ZoteroPane.itemSelected?.();
+        return true;
+      }
+    } catch (e) {}
+  }
+
+  try {
+    (Zotero.Notes as any).open(noteID, null, { openInWindow: true });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 function createRenderableEntries(entries = _ws): NoteEntry[] {
   return entries.map((entry) => ({ word: entry.word, entry }));
 }
@@ -410,12 +442,15 @@ async function syncEntriesFromNote(note?: any): Promise<{
 }
 
 function findLiveEntry(word: string, id?: string): VocabEntry | null {
+  const cleaned = cleanWord(word);
+  if (!cleaned) return null;
+
   if (id) {
     const byId = _ws.find((entry) => entry.id === id);
-    if (byId) return byId;
+    if (byId && byId.word === cleaned) return byId;
   }
 
-  return _ws.find((entry) => entry.word === word) || null;
+  return _ws.find((entry) => entry.word === cleaned) || null;
 }
 
 async function migrateLegacyStateIfNeeded(): Promise<void> {
@@ -763,6 +798,8 @@ async function _backgroundSync(entry: VocabEntry, cleaned: string) {
     const online = typeof navigator !== "undefined" ? navigator.onLine : true;
     if (online) {
       const result = await _translate(cleaned);
+      const latestNote = await ensureNote(false);
+      if (latestNote) await syncEntriesFromNote(latestNote);
       const liveEntry = findLiveEntry(cleaned, targetId);
       if (!liveEntry) return;
 
@@ -784,6 +821,8 @@ async function _backgroundSync(entry: VocabEntry, cleaned: string) {
         pwNotify(`${cleaned}: ${result.def.substring(0, 40)}`, "success");
       }
     } else {
+      const latestNote = await ensureNote(false);
+      if (latestNote) await syncEntriesFromNote(latestNote);
       const liveEntry = findLiveEntry(cleaned, targetId);
       if (!liveEntry) return;
       liveEntry.status = "pending";
@@ -813,6 +852,8 @@ function _retryPending() {
     const targetId = entry.id;
     entry.tries = (entry.tries || 0) + 1;
     _translate(entry.word).then(async (result) => {
+      const latestNote = await ensureNote(false);
+      if (latestNote) await syncEntriesFromNote(latestNote);
       const liveEntry = findLiveEntry(entry.word, targetId);
       if (!liveEntry) return;
       liveEntry.trans = result.trans || liveEntry.trans;
@@ -1003,12 +1044,9 @@ function addMenu(win: any) {
 async function _openVocabNote() {
   const note = await ensureNote(_ws.length > 0);
   if (note) {
-    try {
-      (Zotero.Notes as any).open(note.id, null, { openInWindow: false });
-      return;
-    } catch (e) {
-      Zotero.debug("VocabBuilder: open note: " + e);
-    }
+    const opened = await openNoteForEditing(note);
+    if (opened) return;
+    Zotero.debug("VocabBuilder: open note failed");
   }
 
   pwNotify(t(_uiLanguage, "notify.noVocabulary"));
