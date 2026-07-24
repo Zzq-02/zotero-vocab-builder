@@ -12,16 +12,52 @@ function resolveIcon(tone: NotificationTone): string {
   return PLUGIN_ICON_URI;
 }
 
+function resolvePrefix(tone: NotificationTone): string {
+  if (tone === "success") return "\u2713 ";
+  if (tone === "error") return "\u2717 ";
+  return "";
+}
+
+function showNativeAlert(
+  title: string,
+  text: string,
+  icon: string,
+): boolean {
+  try {
+    const alerts = (Components as any).classes[
+      "@mozilla.org/alerts-service;1"
+    ]?.getService((Components as any).interfaces.nsIAlertsService);
+    if (!alerts?.showAlertNotification) return false;
+    alerts.showAlertNotification(
+      icon,
+      title,
+      text,
+      false,
+      "",
+      null,
+      config.addonRef,
+    );
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 export function showNotification(
   message: string,
   tone: NotificationTone = "info",
 ) {
   try {
-    const fullMessage = message.replace(/\s+/g, " ").trim();
+    const fullMessage = `${resolvePrefix(tone)}${message.replace(/\s+/g, " ").trim()}`;
+    const icon = resolveIcon(tone);
+    if (showNativeAlert(config.addonName, fullMessage, icon)) {
+      return;
+    }
+
     const pw = new (Zotero as any).ProgressWindow({ closeOnClick: true });
     pw.show();
 
-    const line = new pw.ItemProgress(resolveIcon(tone), fullMessage);
+    const line = new pw.ItemProgress(icon, fullMessage);
     (pw as any).progress = line;
     if (tone === "error") {
       line.setError();

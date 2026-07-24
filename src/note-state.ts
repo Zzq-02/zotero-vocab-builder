@@ -264,10 +264,10 @@ function renderStructuredEntry(
 
   const icon =
     entry.status === "completed"
-      ? `<span class="vb-status vb-status-success" style="color:#23a55a;font-weight:700;">${STATUS_SYMBOLS.completed}</span>`
+      ? STATUS_SYMBOLS.completed
       : entry.status === "failed"
-        ? `<span class="vb-status vb-status-failed" style="color:#d64545;font-weight:700;">${STATUS_SYMBOLS.failed}</span>`
-        : `<span class="vb-status vb-status-pending" style="color:#7b8a82;font-weight:700;">${STATUS_SYMBOLS.pending}</span>`;
+        ? STATUS_SYMBOLS.failed
+        : STATUS_SYMBOLS.pending;
   const fields = [
     renderVisibleField("translation", entry.trans, language),
     renderVisibleField("definition", entry.def, language),
@@ -298,7 +298,7 @@ function renderVisibleField(
   const label =
     NOTE_FIELD_LABELS[language]?.[key] || NOTE_FIELD_LABELS["en-US"][key];
   const spacer = leadingSpace ? " " : "";
-  return `${spacer}<span>${label}: ${escapeHtml(value)}</span>`;
+  return `${spacer}${label}: ${escapeHtml(value)}`;
 }
 
 function parseStructuredEntry(rawHTML: string): VocabEntry | null {
@@ -348,7 +348,8 @@ function parseVisibleStructuredEntry(rawHTML: string): VocabEntry | null {
 }
 
 function readMarkedWord(rawHTML: string): string {
-  const match = rawHTML.match(/<(?:b|strong)>([\s\S]*?)<\/(?:b|strong)>/i);
+  const normalizedHTML = normalizeEncodedMarkup(rawHTML);
+  const match = normalizedHTML.match(/<(?:b|strong)>([\s\S]*?)<\/(?:b|strong)>/i);
   return cleanWord(decodeHtml(match?.[1] || ""));
 }
 
@@ -358,10 +359,11 @@ function readFirstVisibleWord(rawHTML: string): string {
     new RegExp(`(?:${visibleFieldLabels().map(escapeRegExp).join("|")})\\s*[:\uFF1A]`, "i"),
   );
   const candidateText = labelMatch ? text.slice(0, labelMatch.index) : text;
-  return cleanWord(
+  const word = cleanWord(
     candidateText.match(/[a-zA-Z][a-zA-Z'\-]*(?: [a-zA-Z][a-zA-Z'\-]*)?/)?.[0] ||
       "",
   );
+  return looksLikeMarkupWord(word) ? "" : word;
 }
 
 function visibleWordStillPresent(rawHTML: string, word: string): boolean {
@@ -372,8 +374,9 @@ function visibleWordStillPresent(rawHTML: string, word: string): boolean {
 }
 
 function readVisibleText(rawHTML: string): string {
+  const normalizedHTML = normalizeEncodedMarkup(rawHTML);
   return decodeHtml(
-    rawHTML
+    normalizedHTML
       .replace(/<br\s*\/?>/gi, " ")
       .replace(/<[^>]+>/g, " ")
       .replace(/\s+/g, " ")
@@ -420,6 +423,38 @@ function visibleFieldLabels(): string[] {
 
 function normalizePhone(value: string): string {
   return value.replace(/^\/+|\/+$/g, "").trim();
+}
+
+function normalizeEncodedMarkup(rawHTML: string): string {
+  let normalized = rawHTML;
+  for (let i = 0; i < 3; i++) {
+    const decoded = decodeHtml(normalized);
+    if (decoded === normalized) break;
+    normalized = decoded;
+  }
+  return normalized;
+}
+
+function looksLikeMarkupWord(word: string): boolean {
+  if (!word) return false;
+
+  const markupTokens = new Set([
+    "span",
+    "style",
+    "color",
+    "rgb",
+    "strong",
+    "class",
+    "font",
+    "div",
+    "li",
+    "br",
+  ]);
+  return word.split(/\s+/).some((token) => {
+    if (!token) return false;
+    if (markupTokens.has(token)) return true;
+    return token.startsWith("style") || token.startsWith("color");
+  });
 }
 
 function readAttr(rawHTML: string, attrName: string): string {

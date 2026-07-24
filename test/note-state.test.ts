@@ -141,12 +141,35 @@ describe("note-state", function () {
       "en-US",
     );
 
-    assert.include(html, "vb-status-success");
-    assert.include(html, "vb-status-failed");
+    assert.include(
+      html,
+      `${String.fromCharCode(0x2713)} <strong>zeta</strong>`,
+    );
+    assert.include(
+      html,
+      `${String.fromCharCode(0x2717)} <strong>eta</strong>`,
+    );
     assert.include(html, "translation: done");
     assert.notInclude(html, "[OK]");
     assert.notInclude(html, "[ERR]");
     assert.notInclude(html, "data-vb-word");
+  });
+
+  it("ignores escaped style markup when rebuilding words from note html", function () {
+    const html = [
+      `<div class="zotero-note znv1">`,
+      `<h1>Vocabulary List</h1>`,
+      `<ul>`,
+      `<li class="vb-entry" data-vb-id="note:array" data-vb-status="pending">&lt;span style=&quot;color: rgb(123, 123, 123);&quot;&gt;…&lt;/span&gt; &lt;strong&gt;array&lt;/strong&gt;<br>context: array.</li>`,
+      `</ul>`,
+      `</div>`,
+    ].join("");
+
+    const parsed = parseNoteHTML(html);
+
+    assert.lengthOf(parsed, 1);
+    assert.equal(parsed[0].word, "array");
+    assert.equal(parsed[0].entry?.word, "array");
   });
 
   it("rebuilds local state entries from note content", function () {
