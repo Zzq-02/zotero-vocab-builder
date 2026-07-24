@@ -345,7 +345,7 @@ function parseStructuredEntry(rawHTML: string): VocabEntry | null {
     pos: readAttr(rawHTML, "data-vb-pos"),
     phone: readAttr(rawHTML, "data-vb-phone"),
     ctx: readAttr(rawHTML, "data-vb-ctx"),
-    src: readAttr(rawHTML, "data-vb-src"),
+    src: readAttr(rawHTML, "data-vb-src") || readSourceHref(rawHTML),
   });
 }
 
@@ -372,7 +372,7 @@ function parseVisibleStructuredEntry(rawHTML: string): VocabEntry | null {
       readVisibleFieldValue(text, NOTE_FIELD_ALIASES.phonetic),
     ),
     ctx: readVisibleFieldValue(text, NOTE_FIELD_ALIASES.context),
-    src: readAttr(rawHTML, "data-vb-src"),
+    src: readAttr(rawHTML, "data-vb-src") || readSourceHref(rawHTML),
   });
 }
 
@@ -387,6 +387,14 @@ function hasExplicitlyBlankMarkedWord(rawHTML: string): boolean {
   const match = normalizedHTML.match(/<(?:b|strong)>([\s\S]*?)<\/(?:b|strong)>/i);
   if (!match) return false;
   return !cleanWord(decodeHtml(match[1] || ""));
+}
+
+function readSourceHref(rawHTML: string): string {
+  const normalizedHTML = normalizeEncodedMarkup(rawHTML);
+  const match = normalizedHTML.match(
+    /<a\b[^>]*href="(zotero:\/\/open-pdf[^"]+)"[^>]*>/i,
+  );
+  return decodeHtml(match?.[1] || "");
 }
 
 function readFirstVisibleWord(rawHTML: string): string {

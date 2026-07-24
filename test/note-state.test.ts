@@ -210,6 +210,22 @@ describe("note-state", function () {
     );
   });
 
+  it("recovers source links from legacy anchor markup", function () {
+    const html = [
+      `<div class="zotero-note znv1">`,
+      `<h1>Vocabulary List</h1>`,
+      `<ul>`,
+      `<li class="vb-entry" data-vb-id="note:manual" data-vb-word="manual" data-vb-status="completed"><a href="zotero://open-pdf/library/items/ABCDE123?page=4"><strong>manual</strong></a></li>`,
+      `</ul>`,
+      `</div>`,
+    ].join("");
+
+    const parsed = parseNoteHTML(html);
+
+    assert.lengthOf(parsed, 1);
+    assert.equal(parsed[0].entry?.src, "zotero://open-pdf/library/items/ABCDE123?page=4");
+  });
+
   it("rebuilds local state entries from note content", function () {
     const structured = createVocabEntry("lambda", {
       status: "failed",

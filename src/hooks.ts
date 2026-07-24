@@ -62,7 +62,6 @@ let _syncPending = false;
 let _apiName = "youdao";
 let _uiLanguage: UILanguage = DEFAULT_UI_LANGUAGE;
 let _readerSeen: Record<string, boolean> = {};
-let _editorSeen: Record<string, boolean> = {};
 let _prefPaneID: string | null = null;
 let _notifierID: string | null = null;
 let _noteRefreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -423,6 +422,17 @@ async function readNoteEntries(note?: any): Promise<NoteEntry[]> {
   } catch (e) {}
 
   return parseNoteHTML(resolvedNote.getNote() || "");
+}
+
+function noteNeedsMarkupUpgrade(note: any): boolean {
+  const html = String(note?.getNote?.() || "");
+  if (!html) return false;
+
+  return (
+    /<a\b(?![^>]*class="vb-source-link")[^>]*href="zotero:\/\/open-pdf/i.test(
+      html,
+    ) || /a hrefzoteroopen-pdf/i.test(html)
+  );
 }
 
 function sameEntries(left: VocabEntry[], right: VocabEntry[]): boolean {
@@ -1331,9 +1341,7 @@ function attachNoteEditorLinks() {
     const win = editor?._iframeWindow;
     const doc = win?.document;
     if (!win || !doc) continue;
-
-    const seenKey = String(noteID);
-    if (_editorSeen[seenKey]) continue;
+    if (win._vbSourceLinksAttached) continue;
 
     doc.addEventListener(
       "click",
@@ -1362,7 +1370,7 @@ function attachNoteEditorLinks() {
       true,
     );
 
-    _editorSeen[seenKey] = true;
+    win._vbSourceLinksAttached = true;
   }
 }
 
@@ -1525,12 +1533,14 @@ async function reloadStateFromDisk() {
     const note = await ensureNote(false);
     if (note) {
       await syncEntriesFromNote(note);
+      if (noteNeedsMarkupUpgrade(note)) {
+        await _doSyncNoteSafe();
+      }
       attachNoteEditorLinks();
       return;
     }
 
     rememberNote(null);
-    _editorSeen = {};
     _ws = [];
     refreshUI();
   } catch (e) {
