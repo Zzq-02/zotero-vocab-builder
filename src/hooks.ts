@@ -19,6 +19,7 @@ import {
   type NoteEntry,
   type VocabEntry,
 } from "./note-state";
+import { showNotification, type NotificationTone } from "./notifications";
 import { loadPersistedState, savePersistedState } from "./state-store";
 import {
   applyDocumentLanguage,
@@ -658,7 +659,7 @@ async function _syncFromNote() {
   const imported = await importWordsFromNote(note);
   if (imported) {
     await _doSyncNoteSafe();
-    pwNotify(t(_uiLanguage, "notify.imported", { count: imported }));
+    pwNotify(t(_uiLanguage, "notify.imported", { count: imported }), "success");
   } else {
     pwNotify(t(_uiLanguage, "notify.noNewWords"));
   }
@@ -701,11 +702,14 @@ async function _backgroundSync(entry: VocabEntry, cleaned: string) {
 
       if (entry.status === "failed") {
         entry.tries = Math.max(1, entry.tries || 0);
-        pwNotify(t(_uiLanguage, "notify.translationFailed", { word: cleaned }));
+        pwNotify(
+          t(_uiLanguage, "notify.translationFailed", { word: cleaned }),
+          "error",
+        );
       } else if (result.trans) {
-        pwNotify(`${cleaned} -> ${result.trans}`);
+        pwNotify(`${cleaned} -> ${result.trans}`, "success");
       } else if (result.def) {
-        pwNotify(`${cleaned}: ${result.def.substring(0, 40)}`);
+        pwNotify(`${cleaned}: ${result.def.substring(0, 40)}`, "success");
       }
     } else {
       entry.status = "pending";
@@ -719,6 +723,7 @@ async function _backgroundSync(entry: VocabEntry, cleaned: string) {
       t(_uiLanguage, "notify.error", {
         message: (err as any)?.message || err,
       }),
+      "error",
     );
     Zotero.debug("VocabBuilder: bg sync: " + err);
   }
@@ -811,10 +816,13 @@ async function onPrefsEvent(type: string, data: any) {
         addWord(word, "", "")
           .then((entry) => {
             if (entry) {
-              pwNotify(t(_uiLanguage, "notify.added", { word: entry.word }));
+              pwNotify(
+                t(_uiLanguage, "notify.added", { word: entry.word }),
+                "success",
+              );
               refreshPrefsCounts();
             } else {
-              pwNotify(t(_uiLanguage, "notify.duplicateInvalid"));
+              pwNotify(t(_uiLanguage, "notify.duplicateInvalid"), "error");
             }
           })
           .catch((e) => {
@@ -862,7 +870,7 @@ async function onPrefsEvent(type: string, data: any) {
     const feedbackCopyBtn = doc.getElementById("vb-feedback-copy");
     bindEventOnce(feedbackCopyBtn, "FeedbackCopy", "click", () => {
       copyToClipboard(FEEDBACK_EMAIL);
-      pwNotify(t(_uiLanguage, "notify.feedbackEmailCopied"));
+      pwNotify(t(_uiLanguage, "notify.feedbackEmailCopied"), "success");
     });
   } catch (e) {
     Zotero.debug("VocabBuilder: prefs: " + e);
@@ -896,9 +904,12 @@ function addMenu(win: any) {
         addWord(word.trim(), "", "")
           .then((entry) => {
             if (entry) {
-              pwNotify(t(_uiLanguage, "notify.added", { word: entry.word }));
+              pwNotify(
+                t(_uiLanguage, "notify.added", { word: entry.word }),
+                "success",
+              );
             } else {
-              pwNotify(t(_uiLanguage, "notify.duplicateInvalid"));
+              pwNotify(t(_uiLanguage, "notify.duplicateInvalid"), "error");
             }
           })
           .catch((e) => {
@@ -992,19 +1003,14 @@ async function handleAltA(e: any, text: string) {
 
   const entry = await addWord(word, selectedText, "");
   if (entry) {
-    pwNotify(t(_uiLanguage, "notify.added", { word: entry.word }));
+    pwNotify(t(_uiLanguage, "notify.added", { word: entry.word }), "success");
   } else {
     pwNotify(t(_uiLanguage, "notify.duplicate", { word }));
   }
 }
 
-function pwNotify(msg: string) {
-  try {
-    const pw = new (Zotero as any).ProgressWindow({ closeOnClick: true });
-    pw.changeHeadline(msg);
-    pw.show();
-    pw.startCloseTimer(3000);
-  } catch (e) {}
+function pwNotify(msg: string, tone: NotificationTone = "info") {
+  showNotification(msg, tone);
 }
 
 function pollReaders() {

@@ -169,10 +169,10 @@ function dedupeSessionEntries(entries: VocabEntry[]): VocabEntry[] {
 function renderStructuredEntry(entry: VocabEntry): string {
   const icon =
     entry.status === "completed"
-      ? "[OK]"
+      ? `<span class="vb-status vb-status-success" style="color:#23a55a;font-weight:700;">&#10003;</span>`
       : entry.status === "failed"
-        ? "[ERR]"
-        : "[...]";
+        ? `<span class="vb-status vb-status-failed" style="color:#d64545;font-weight:700;">&#10007;</span>`
+        : `<span class="vb-status vb-status-pending" style="color:#7b8a82;font-weight:700;">&#8230;</span>`;
   const phone = entry.phone
     ? ` <span class="vb-phone">/${escapeHtml(entry.phone)}/</span>`
     : "";

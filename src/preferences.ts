@@ -19,6 +19,7 @@ import {
   type NoteEntry,
   type VocabEntry,
 } from "./note-state";
+import { showNotification, type NotificationTone } from "./notifications";
 import { loadPersistedState, savePersistedState } from "./state-store";
 import {
   applyDocumentLanguage,
@@ -517,11 +518,12 @@ async function backgroundSync(entry: VocabEntry, cleaned: string) {
         entry.tries = Math.max(1, entry.tries || 0);
         notify(
           t(state.uiLanguage, "notify.translationFailed", { word: cleaned }),
+          "error",
         );
       } else if (result.trans) {
-        notify(`${cleaned} -> ${result.trans}`);
+        notify(`${cleaned} -> ${result.trans}`, "success");
       } else if (result.def) {
-        notify(`${cleaned}: ${result.def.substring(0, 40)}`);
+        notify(`${cleaned}: ${result.def.substring(0, 40)}`, "success");
       }
     } else {
       entry.status = "pending";
@@ -536,18 +538,14 @@ async function backgroundSync(entry: VocabEntry, cleaned: string) {
       t(state.uiLanguage, "notify.error", {
         message: (e as any)?.message || e,
       }),
+      "error",
     );
     Zotero.debug("VocabBuilder: prefs background sync: " + e);
   }
 }
 
-function notify(message: string) {
-  try {
-    const pw = new (Zotero as any).ProgressWindow({ closeOnClick: true });
-    pw.changeHeadline(message);
-    pw.show();
-    pw.startCloseTimer(3000);
-  } catch (e) {}
+function notify(message: string, tone: NotificationTone = "info") {
+  showNotification(message, tone);
 }
 
 function bindEventOnce(
@@ -686,6 +684,7 @@ async function exportVocabulary(format: ExportFormat, scope: ExportScope) {
     t(state.uiLanguage, "notify.exported", {
       extension: bundle.extension.toUpperCase(),
     }),
+    "success",
   );
 }
 
@@ -718,7 +717,10 @@ async function syncFromNote() {
   if (imported) {
     await syncNoteSafe();
     await notifyMainAddon();
-    notify(t(state.uiLanguage, "notify.imported", { count: imported }));
+    notify(
+      t(state.uiLanguage, "notify.imported", { count: imported }),
+      "success",
+    );
   } else {
     notify(t(state.uiLanguage, "notify.noNewWords"));
   }
@@ -735,9 +737,12 @@ async function quickAddWord() {
   const entry = await addWord(word, "", "");
   if (entry) {
     await notifyMainAddon();
-    notify(t(state.uiLanguage, "notify.added", { word: entry.word }));
+    notify(
+      t(state.uiLanguage, "notify.added", { word: entry.word }),
+      "success",
+    );
   } else {
-    notify(t(state.uiLanguage, "notify.duplicateInvalid"));
+    notify(t(state.uiLanguage, "notify.duplicateInvalid"), "error");
   }
 }
 
@@ -870,7 +875,7 @@ const prefsController = {
   },
   copyFeedbackEmail() {
     copyToClipboard(FEEDBACK_EMAIL);
-    notify(t(state.uiLanguage, "notify.feedbackEmailCopied"));
+    notify(t(state.uiLanguage, "notify.feedbackEmailCopied"), "success");
   },
 };
 

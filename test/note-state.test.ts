@@ -23,7 +23,11 @@ describe("note-state", function () {
     });
 
     const merged = mergeNoteEntries(noteEntries, [sessionEntry]);
-    const rendered = renderNoteHTML(merged, new Date("2026-07-23T00:00:00.000Z"));
+    const rendered = renderNoteHTML(
+      merged,
+      new Date("2026-07-23T00:00:00.000Z"),
+      "en-US",
+    );
 
     assert.include(rendered, "legacy <b>alpha</b> row");
     assert.include(rendered, `data-vb-word="beta"`);
@@ -95,5 +99,29 @@ describe("note-state", function () {
     );
     assert.equal(mutable[0].tries, 1);
     assert.equal(mutable[0].status, "pending");
+  });
+
+  it("renders status icons as symbols instead of OK/ERR text", function () {
+    const completed = createVocabEntry("zeta", {
+      status: "completed",
+      trans: "done",
+    });
+    const failed = createVocabEntry("eta", {
+      status: "failed",
+      tries: 1,
+    });
+
+    const html = renderNoteHTML(
+      [
+        { word: completed.word, entry: completed },
+        { word: failed.word, entry: failed },
+      ],
+      new Date("2026-07-23T00:00:00.000Z"),
+    );
+
+    assert.include(html, "vb-status-success");
+    assert.include(html, "vb-status-failed");
+    assert.notInclude(html, "[OK]");
+    assert.notInclude(html, "[ERR]");
   });
 });

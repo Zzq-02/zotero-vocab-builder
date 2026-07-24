@@ -2,6 +2,7 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "rootDir": "..",
+    "lib": ["ES2022", "DOM"],
     "types": ["mocha", "node"]
   },
   "include": [
@@ -10,6 +11,7 @@
     "./exporters.test.ts",
     "../src/note-state.ts",
     "../src/custom-api.ts",
-    "../src/exporters.ts"
+    "../src/exporters.ts",
+    "../src/ui-language.ts"
   ]
 }
