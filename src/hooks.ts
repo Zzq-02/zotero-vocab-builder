@@ -441,6 +441,11 @@ async function syncEntriesFromNote(note?: any): Promise<{
   return { changed: true, count: nextEntries.length };
 }
 
+async function noteStillHasWord(note: any, word: string): Promise<boolean> {
+  const noteEntries = await readNoteEntries(note);
+  return noteEntries.some((item) => item.word === word);
+}
+
 function findLiveEntry(word: string, id?: string): VocabEntry | null {
   const cleaned = cleanWord(word);
   if (!cleaned) return null;
@@ -799,7 +804,7 @@ async function _backgroundSync(entry: VocabEntry, cleaned: string) {
     if (online) {
       const result = await _translate(cleaned);
       const latestNote = await ensureNote(false);
-      if (latestNote) await syncEntriesFromNote(latestNote);
+      if (latestNote && !(await noteStillHasWord(latestNote, cleaned))) return;
       const liveEntry = findLiveEntry(cleaned, targetId);
       if (!liveEntry) return;
 
@@ -823,7 +828,7 @@ async function _backgroundSync(entry: VocabEntry, cleaned: string) {
       }
     } else {
       const latestNote = await ensureNote(false);
-      if (latestNote) await syncEntriesFromNote(latestNote);
+      if (latestNote && !(await noteStillHasWord(latestNote, cleaned))) return;
       const liveEntry = findLiveEntry(cleaned, targetId);
       if (!liveEntry) return;
       liveEntry.status = "pending";
@@ -854,7 +859,9 @@ function _retryPending() {
     entry.tries = (entry.tries || 0) + 1;
     _translate(entry.word).then(async (result) => {
       const latestNote = await ensureNote(false);
-      if (latestNote) await syncEntriesFromNote(latestNote);
+      if (latestNote && !(await noteStillHasWord(latestNote, entry.word))) {
+        return;
+      }
       const liveEntry = findLiveEntry(entry.word, targetId);
       if (!liveEntry) return;
       liveEntry.trans = result.trans || liveEntry.trans;
@@ -1082,29 +1089,123 @@ function getReaderSelectionAnnotation(reader: any): any | null {
   }
 }
 
-function buildReaderSourceLink(reader: any): string {
+type ReaderSourceContext = {
+  attachment: any;
+  attachmentKey: string;
+  libraryID: number;
+  pageIndex: number;
+  annotation: any | null;
+  annotationKey: string;
+};
+
+function captureReaderSourceContext(reader: any): ReaderSourceContext | null {
   try {
     const item = reader?._item;
-    if (!item?.isPDFAttachment?.() || !item.key || !item.libraryID) return "";
+    if (!item?.isPDFAttachment?.() || !item.key || !item.libraryID) return null;
 
     const annotation = getReaderSelectionAnnotation(reader);
     const pageIndex =
       annotation?.position?.pageIndex ??
       annotation?.pageIndex ??
       reader?.state?.pageIndex;
-    if (!Number.isInteger(pageIndex) || pageIndex < 0) return "";
+    if (!Number.isInteger(pageIndex) || pageIndex < 0) return null;
 
-    const libraryPath = buildOpenPDFLibraryPath(item.libraryID);
-    const params = [`page=${pageIndex + 1}`];
-    const annotationKey = readAnnotationKey(annotation);
-    if (annotationKey) {
-      params.push(`annotation=${encodeURIComponent(annotationKey)}`);
+    return {
+      attachment: item,
+      attachmentKey: String(item.key),
+      libraryID: Number(item.libraryID),
+      pageIndex,
+      annotation: annotation || null,
+      annotationKey: readAnnotationKey(annotation),
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+function buildReaderSourceLink(source: ReaderSourceContext | null): string {
+  if (!source) return "";
+
+  try {
+    const libraryPath = buildOpenPDFLibraryPath(source.libraryID);
+    const params = [`page=${source.pageIndex + 1}`];
+    if (source.annotationKey) {
+      params.push(`annotation=${encodeURIComponent(source.annotationKey)}`);
     }
-
-    return `zotero://open-pdf/${libraryPath}/items/${encodeURIComponent(item.key)}?${params.join("&")}`;
+    return `zotero://open-pdf/${libraryPath}/items/${encodeURIComponent(source.attachmentKey)}?${params.join("&")}`;
   } catch (e) {
     return "";
   }
+}
+
+function cloneAnnotationPosition(position: any): any | null {
+  if (!position) return null;
+  try {
+    return JSON.parse(JSON.stringify(position));
+  } catch (e) {
+    return null;
+  }
+}
+
+async function ensureReaderHighlightKey(
+  source: ReaderSourceContext,
+): Promise<string> {
+  if (source.annotationKey) return source.annotationKey;
+
+  try {
+    const position = cloneAnnotationPosition(source.annotation?.position);
+    const sortIndex = String(source.annotation?.sortIndex || "").trim();
+    if (!position || !sortIndex) return "";
+
+    const key = String(
+      Zotero.Utilities.generateObjectKey?.() ||
+        Zotero.Utilities.randomString?.(8),
+    )
+      .trim()
+      .toUpperCase();
+    if (!/^[A-Z0-9]{8}$/.test(key)) return "";
+
+    const saved = await Zotero.Annotations.saveFromJSON(source.attachment, {
+      id: key,
+      key,
+      type: source.annotation?.type === "underline" ? "underline" : "highlight",
+      text: String(source.annotation?.text || "").trim(),
+      libraryID: source.libraryID,
+      readOnly: false,
+      pageLabel: String(source.annotation?.pageLabel || source.pageIndex + 1),
+      color: String(source.annotation?.color || "#ffd400"),
+      sortIndex,
+      position,
+      dateModified: new Date().toISOString(),
+    });
+
+    source.annotationKey = readAnnotationKey(saved) || key;
+    return source.annotationKey;
+  } catch (e) {
+    Zotero.debug("VocabBuilder: source highlight: " + e);
+    return "";
+  }
+}
+
+async function upgradeEntrySourceLink(
+  word: string,
+  id: string | undefined,
+  source: ReaderSourceContext,
+): Promise<void> {
+  const annotationKey = await ensureReaderHighlightKey(source);
+  if (!annotationKey) return;
+
+  const latestNote = await ensureNote(false);
+  if (latestNote && !(await noteStillHasWord(latestNote, word))) return;
+
+  const liveEntry = findLiveEntry(word, id);
+  if (!liveEntry) return;
+
+  const upgradedSource = buildReaderSourceLink(source);
+  if (!upgradedSource || liveEntry.src === upgradedSource) return;
+
+  liveEntry.src = upgradedSource;
+  await _doSyncNoteSafe();
 }
 
 function buildOpenPDFLibraryPath(libraryID: number): string {
@@ -1156,13 +1257,15 @@ async function handleAltA(e: any, text: string, reader?: any) {
   const word = cleanWord(selectedText);
   if (!word) return;
 
-  const entry = await addWord(
-    word,
-    selectedText,
-    buildReaderSourceLink(reader),
-  );
+  const source = captureReaderSourceContext(reader);
+  const entry = await addWord(word, selectedText, buildReaderSourceLink(source));
   if (!entry) {
     pwNotify(t(_uiLanguage, "notify.duplicate", { word }), "error");
+    return;
+  }
+
+  if (source && !source.annotationKey) {
+    void upgradeEntrySourceLink(entry.word, entry.id, source);
   }
 }
 

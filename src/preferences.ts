@@ -456,6 +456,11 @@ async function syncEntriesFromNote(note?: any): Promise<{
   return { changed: true, count: nextEntries.length };
 }
 
+async function noteStillHasWord(note: any, word: string): Promise<boolean> {
+  const noteEntries = await readNoteEntries(note);
+  return noteEntries.some((item) => item.word === word);
+}
+
 function findLiveEntry(word: string, id?: string): VocabEntry | null {
   const cleaned = cleanWord(word);
   if (!cleaned) return null;
@@ -560,7 +565,7 @@ async function backgroundSync(entry: VocabEntry, cleaned: string) {
     if (online) {
       const result = await translate(cleaned);
       const latestNote = await ensureNote(false);
-      if (latestNote) await syncEntriesFromNote(latestNote);
+      if (latestNote && !(await noteStillHasWord(latestNote, cleaned))) return;
       const liveEntry = findLiveEntry(cleaned, targetId);
       if (!liveEntry) return;
 
@@ -584,7 +589,7 @@ async function backgroundSync(entry: VocabEntry, cleaned: string) {
       }
     } else {
       const latestNote = await ensureNote(false);
-      if (latestNote) await syncEntriesFromNote(latestNote);
+      if (latestNote && !(await noteStillHasWord(latestNote, cleaned))) return;
       const liveEntry = findLiveEntry(cleaned, targetId);
       if (!liveEntry) return;
       liveEntry.status = "pending";
