@@ -52,19 +52,31 @@ function applyLineStyles(line: any, tone: NotificationTone): boolean {
   const row = line?._hbox;
   const text = line?._itemText;
   const image = line?._image;
-  if (!row?.style || !text?.style) return false;
+  const doc = row?.ownerDocument as Document | undefined;
+  if (!row?.style || !text?.style || !doc) return false;
 
   const palette = PALETTES[tone];
-  row.style.background = palette.background;
+  const root = doc.documentElement as HTMLElement | null;
+  if (root?.style) {
+    root.style.background = palette.background;
+  }
+  const body = doc.body as HTMLBodyElement | null;
+  if (body?.style) {
+    body.style.background = palette.background;
+    body.style.margin = "0";
+    body.style.padding = "8px 12px";
+  }
+
+  row.style.background = "transparent";
   row.style.border = "none";
-  row.style.borderRadius = "8px";
-  row.style.padding = "8px 12px";
-  row.style.margin = "8px 0 0 0";
-  row.style.minHeight = "36px";
+  row.style.borderRadius = "0";
+  row.style.padding = "0";
+  row.style.margin = "0";
+  row.style.minHeight = "auto";
   row.style.height = "auto";
-  row.style.width = "100%";
+  row.style.width = "auto";
   row.style.maxWidth = "none";
-  row.style.alignItems = "flex-start";
+  row.style.alignItems = "center";
   row.style.boxShadow = "none";
 
   text.style.color = palette.text;
@@ -77,7 +89,8 @@ function applyLineStyles(line: any, tone: NotificationTone): boolean {
 
   const parent = row.parentElement as HTMLElement | null;
   if (parent?.style) {
-    parent.style.width = "100%";
+    parent.style.width = "auto";
+    parent.style.background = "transparent";
   }
 
   if (image?.style) {
