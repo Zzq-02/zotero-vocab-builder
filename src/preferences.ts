@@ -900,7 +900,8 @@ async function runInit() {
 }
 
 async function init() {
-  if (!getPrefsDocument().getElementById("vb-open-note")) return;
+  const doc = getMaybePrefsDocument();
+  if (!doc?.getElementById("vb-open-note")) return;
 
   if (!state.initPromise) {
     state.initPromise = runInit().catch((e) => {
@@ -912,7 +913,7 @@ async function init() {
   await state.initPromise;
 }
 
-function scheduleInit(attempts = 40) {
+function bootstrapInit(attempts = 40) {
   const doc = getMaybePrefsDocument();
   if (doc?.getElementById("vb-open-note")) {
     void init();
@@ -923,7 +924,7 @@ function scheduleInit(attempts = 40) {
 
   const win = getPrefsWindow();
   if (typeof win?.setTimeout === "function") {
-    win.setTimeout(() => scheduleInit(attempts - 1), 50);
+    win.setTimeout(() => bootstrapInit(attempts - 1), 50);
   }
 }
 
@@ -948,5 +949,12 @@ const prefsController = {
 prefsGlobal.VocabBuilderPreferences = prefsController;
 if (prefsGlobal.window) {
   prefsGlobal.window.VocabBuilderPreferences = prefsController;
+  const readyState = prefsGlobal.window.document?.readyState;
+  if (readyState === "complete" || readyState === "interactive") {
+    prefsGlobal.window.setTimeout(() => bootstrapInit(), 0);
+  } else {
+    prefsGlobal.window.addEventListener("load", () => bootstrapInit(), {
+      once: true,
+    });
+  }
 }
-scheduleInit();

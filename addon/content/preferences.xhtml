@@ -1,26 +1,7 @@
 <linkset>
   <html:link rel="localization" href="__addonRef__-preferences.ftl" />
 </linkset>
-<vbox
-  onload="
-    (function initVocabBuilderPreferences(attempts) {
-      var controller =
-        window.VocabBuilderPreferences ||
-        (typeof VocabBuilderPreferences !== 'undefined'
-          ? VocabBuilderPreferences
-          : null);
-      if (controller && controller.init) {
-        controller.init();
-        return;
-      }
-      if (attempts > 0) {
-        window.setTimeout(function () {
-          initVocabBuilderPreferences(attempts - 1);
-        }, 50);
-      }
-    })(40)
-  "
->
+<vbox>
   <groupbox>
     <html:div
       style="display: flex; align-items: center; gap: 12px; margin: 0 0 8px 0"
