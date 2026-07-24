@@ -453,10 +453,7 @@ async function hydrateFromNoteIfNeeded(): Promise<void> {
   const note = await ensureNote(false);
   if (!note) return;
 
-  const synced = await syncEntriesFromNote(note);
-  if (synced.changed) {
-    await syncNoteSafe();
-  }
+  await syncEntriesFromNote(note);
 }
 
 async function syncNoteSafe(): Promise<void> {
@@ -754,7 +751,6 @@ async function syncFromNote() {
 
   const synced = await syncEntriesFromNote(note);
   if (synced.changed) {
-    await syncNoteSafe();
     await notifyMainAddon();
     notify(
       t(state.uiLanguage, "notify.imported", { count: synced.count }),
@@ -875,10 +871,7 @@ async function loadLatestState() {
 
   const note = await ensureNote(false);
   if (note) {
-    const synced = await syncEntriesFromNote(note);
-    if (synced.changed) {
-      await syncNoteSafe();
-    }
+    await syncEntriesFromNote(note);
   } else {
     await hydrateFromNoteIfNeeded();
   }

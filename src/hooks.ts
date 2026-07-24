@@ -435,10 +435,7 @@ async function hydrateFromNoteIfNeeded(): Promise<void> {
   const note = await ensureNote(false);
   if (!note) return;
 
-  const synced = await syncEntriesFromNote(note);
-  if (synced.changed) {
-    await _doSyncNoteSafe();
-  }
+  await syncEntriesFromNote(note);
 }
 
 function currentWordCount(): number {
@@ -676,7 +673,6 @@ async function _syncFromNote() {
 
   const synced = await syncEntriesFromNote(note);
   if (synced.changed) {
-    await _doSyncNoteSafe();
     pwNotify(
       t(_uiLanguage, "notify.imported", { count: synced.count }),
       "success",
@@ -1110,10 +1106,7 @@ async function onStartup() {
 
     const note = await ensureNote(false);
     if (note) {
-      const synced = await syncEntriesFromNote(note);
-      if (synced.changed) {
-        await _doSyncNoteSafe();
-      }
+      await syncEntriesFromNote(note);
     } else {
       await hydrateFromNoteIfNeeded();
     }

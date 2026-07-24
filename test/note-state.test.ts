@@ -74,6 +74,22 @@ describe("note-state", function () {
     assert.equal(parsed[0].entry?.ctx, "gamma context");
   });
 
+  it("treats a structured row as deleted when its visible word is gone", function () {
+    const entry = createVocabEntry("gamma", {
+      status: "failed",
+      trans: "gamma translation",
+    });
+
+    const html = renderNoteHTML(
+      [{ word: entry.word, entry }],
+      new Date("2026-07-23T00:00:00.000Z"),
+    ).replace("<b>gamma</b>", "<b></b>");
+
+    const parsed = parseNoteHTML(html);
+
+    assert.lengthOf(parsed, 0);
+  });
+
   it("only keeps unresolved structured entries for in-memory retry state", function () {
     const pending = createVocabEntry("delta", {
       status: "pending",

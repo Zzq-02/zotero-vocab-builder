@@ -227,7 +227,7 @@ function renderStructuredEntry(entry: VocabEntry): string {
 
 function parseStructuredEntry(rawHTML: string): VocabEntry | null {
   const attrWord = cleanWord(readAttr(rawHTML, "data-vb-word"));
-  if (!attrWord) return null;
+  if (!attrWord || !visibleWordStillPresent(rawHTML, attrWord)) return null;
 
   return createVocabEntry(attrWord, {
     id: readAttr(rawHTML, "data-vb-id"),
@@ -246,6 +246,22 @@ function parseStructuredEntry(rawHTML: string): VocabEntry | null {
 function readMarkedWord(rawHTML: string): string {
   const match = rawHTML.match(/<(?:b|strong)>([\s\S]*?)<\/(?:b|strong)>/i);
   return cleanWord(decodeHtml(match?.[1] || ""));
+}
+
+function visibleWordStillPresent(rawHTML: string, word: string): boolean {
+  const markedWord = readMarkedWord(rawHTML);
+  if (markedWord) return markedWord === word;
+
+  const visibleText = cleanWord(
+    decodeHtml(
+      rawHTML
+        .replace(/<br\s*\/?>/gi, " ")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim(),
+    ),
+  );
+  return visibleText.startsWith(word);
 }
 
 function readAttr(rawHTML: string, attrName: string): string {
