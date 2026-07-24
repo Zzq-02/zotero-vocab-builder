@@ -32,7 +32,7 @@ describe("note-state", function () {
 
     assert.include(rendered, "legacy <b>alpha</b> row");
     assert.include(rendered, `<strong>beta</strong>`);
-    assert.notInclude(rendered, `data-vb-word="beta"`);
+    assert.include(rendered, `data-vb-word="beta"`);
     assert.include(rendered, "Total: 2 words");
   });
 
@@ -151,10 +151,10 @@ describe("note-state", function () {
     assert.include(html, "translation: done");
     assert.notInclude(html, "[OK]");
     assert.notInclude(html, "[ERR]");
-    assert.notInclude(html, "data-vb-word");
+    assert.include(html, `data-vb-word="zeta"`);
   });
 
-  it("renders source hyperlink on the word when source uri exists", function () {
+  it("renders source hyperlink separately when source uri exists", function () {
     const entry = createVocabEntry("omega", {
       status: "completed",
       src: "zotero://open-pdf/library/items/XYZW1234?page=3",
@@ -168,7 +168,7 @@ describe("note-state", function () {
 
     assert.include(
       html,
-      `<a href="zotero://open-pdf/library/items/XYZW1234?page=3"><strong>omega</strong></a>`,
+      `<strong>omega</strong> <a href="zotero://open-pdf/library/items/XYZW1234?page=3" class="vb-source-link" data-vb-source="zotero://open-pdf/library/items/XYZW1234?page=3" data-vb-query="omega" title="Open source" >↗</a>`,
     );
   });
 
@@ -187,6 +187,27 @@ describe("note-state", function () {
     assert.lengthOf(parsed, 1);
     assert.equal(parsed[0].word, "array");
     assert.equal(parsed[0].entry?.word, "array");
+  });
+
+  it("prefers structured metadata when visible link text is mangled", function () {
+    const html = [
+      `<div class="zotero-note znv1">`,
+      `<h1>Vocabulary List</h1>`,
+      `<ul>`,
+      `<li class="vb-entry" data-vb-id="note:manually" data-vb-word="manually" data-vb-status="pending" data-vb-ctx="manually" data-vb-src="zotero://open-pdf/library/items/MRTC8NF6?page=2">**a hrefzoteroopen-pdflibraryitemsmrtcnfpage relnoopener noreferrer nofollowmanuallya** 语境: manually</li>`,
+      `</ul>`,
+      `</div>`,
+    ].join("");
+
+    const parsed = parseNoteHTML(html);
+
+    assert.lengthOf(parsed, 1);
+    assert.equal(parsed[0].word, "manually");
+    assert.equal(parsed[0].entry?.word, "manually");
+    assert.equal(
+      parsed[0].entry?.src,
+      "zotero://open-pdf/library/items/MRTC8NF6?page=2",
+    );
   });
 
   it("rebuilds local state entries from note content", function () {

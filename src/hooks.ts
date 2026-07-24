@@ -62,6 +62,7 @@ let _syncPending = false;
 let _apiName = "youdao";
 let _uiLanguage: UILanguage = DEFAULT_UI_LANGUAGE;
 let _readerSeen: Record<string, boolean> = {};
+let _editorSeen: Record<string, boolean> = {};
 let _prefPaneID: string | null = null;
 let _notifierID: string | null = null;
 let _noteRefreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1090,11 +1091,9 @@ function getReaderSelectionAnnotation(reader: any): any | null {
 }
 
 type ReaderSourceContext = {
-  attachment: any;
   attachmentKey: string;
   libraryID: number;
   pageIndex: number;
-  annotation: any | null;
   annotationKey: string;
 };
 
@@ -1111,11 +1110,9 @@ function captureReaderSourceContext(reader: any): ReaderSourceContext | null {
     if (!Number.isInteger(pageIndex) || pageIndex < 0) return null;
 
     return {
-      attachment: item,
       attachmentKey: String(item.key),
       libraryID: Number(item.libraryID),
       pageIndex,
-      annotation: annotation || null,
       annotationKey: readAnnotationKey(annotation),
     };
   } catch (e) {
@@ -1138,76 +1135,6 @@ function buildReaderSourceLink(source: ReaderSourceContext | null): string {
   }
 }
 
-function cloneAnnotationPosition(position: any): any | null {
-  if (!position) return null;
-  try {
-    return JSON.parse(JSON.stringify(position));
-  } catch (e) {
-    return null;
-  }
-}
-
-async function ensureReaderHighlightKey(
-  source: ReaderSourceContext,
-): Promise<string> {
-  if (source.annotationKey) return source.annotationKey;
-
-  try {
-    const position = cloneAnnotationPosition(source.annotation?.position);
-    const sortIndex = String(source.annotation?.sortIndex || "").trim();
-    if (!position || !sortIndex) return "";
-
-    const key = String(
-      Zotero.Utilities.generateObjectKey?.() ||
-        Zotero.Utilities.randomString?.(8),
-    )
-      .trim()
-      .toUpperCase();
-    if (!/^[A-Z0-9]{8}$/.test(key)) return "";
-
-    const saved = await Zotero.Annotations.saveFromJSON(source.attachment, {
-      id: key,
-      key,
-      type: source.annotation?.type === "underline" ? "underline" : "highlight",
-      text: String(source.annotation?.text || "").trim(),
-      libraryID: source.libraryID,
-      readOnly: false,
-      pageLabel: String(source.annotation?.pageLabel || source.pageIndex + 1),
-      color: String(source.annotation?.color || "#ffd400"),
-      sortIndex,
-      position,
-      dateModified: new Date().toISOString(),
-    });
-
-    source.annotationKey = readAnnotationKey(saved) || key;
-    return source.annotationKey;
-  } catch (e) {
-    Zotero.debug("VocabBuilder: source highlight: " + e);
-    return "";
-  }
-}
-
-async function upgradeEntrySourceLink(
-  word: string,
-  id: string | undefined,
-  source: ReaderSourceContext,
-): Promise<void> {
-  const annotationKey = await ensureReaderHighlightKey(source);
-  if (!annotationKey) return;
-
-  const latestNote = await ensureNote(false);
-  if (latestNote && !(await noteStillHasWord(latestNote, word))) return;
-
-  const liveEntry = findLiveEntry(word, id);
-  if (!liveEntry) return;
-
-  const upgradedSource = buildReaderSourceLink(source);
-  if (!upgradedSource || liveEntry.src === upgradedSource) return;
-
-  liveEntry.src = upgradedSource;
-  await _doSyncNoteSafe();
-}
-
 function buildOpenPDFLibraryPath(libraryID: number): string {
   try {
     const path = Zotero.URI.getLibraryPath(libraryID);
@@ -1221,6 +1148,222 @@ function buildOpenPDFLibraryPath(libraryID: number): string {
 function readAnnotationKey(annotation: any): string {
   const key = String(annotation?.key || annotation?.id || "").trim();
   return /^[A-Z0-9]{8}$/.test(key) ? key : "";
+}
+
+type ParsedSourceLink = {
+  itemID: number;
+  pageIndex: number;
+  annotationKey: string;
+};
+
+function parseSourceLink(src: string): ParsedSourceLink | null {
+  try {
+    const match = String(src)
+      .trim()
+      .match(/^zotero:\/\/open-pdf\/(.+?)\/items\/([A-Z0-9]{8})\?(.+)$/i);
+    if (!match) return null;
+
+    const libraryPath = decodeURIComponent(match[1]);
+    const itemKey = decodeURIComponent(match[2]);
+    const params = new URLSearchParams(match[3]);
+    const page = Number(params.get("page") || "0");
+    const pageIndex = Number.isFinite(page) && page > 0 ? page - 1 : 0;
+    const annotationKey = readAnnotationKey({
+      key: params.get("annotation") || "",
+    });
+
+    const libraryID =
+      libraryPath === "library"
+        ? _userLibID()
+        : Number((Zotero.URI.getPathLibrary(libraryPath) as any)?.libraryID || 0);
+    if (!libraryID) return null;
+
+    const item = Zotero.Items.getByLibraryAndKey(libraryID, itemKey) as any;
+    const itemID = Number(item?.id || item?.itemID || 0);
+    if (!itemID) return null;
+
+    return { itemID, pageIndex, annotationKey };
+  } catch (e) {
+    return null;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getReaderByItemID(itemID: number): any | null {
+  try {
+    const readers = (Zotero.Reader as any)._readers;
+    if (!readers) return null;
+    const list: any[] = Array.isArray(readers) ? readers : Object.values(readers);
+    return (
+      list.find((entry) => {
+        const reader = entry?.tabID ? Zotero.Reader.getByTabID(entry.tabID) : entry;
+        return Number(reader?.itemID || reader?._item?.id || 0) === itemID;
+      }) || null
+    );
+  } catch (e) {
+    return null;
+  }
+}
+
+async function waitForReaderByItemID(itemID: number): Promise<any | null> {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const reader = getReaderByItemID(itemID);
+    if (reader) return reader;
+    await sleep(120);
+  }
+  return null;
+}
+
+async function highlightReaderQuery(reader: any, query: string): Promise<void> {
+  const rawQuery = String(query || "").trim();
+  const cleanedQuery = cleanWord(rawQuery) || rawQuery;
+  if (!cleanedQuery) return;
+
+  await sleep(320);
+
+  try {
+    const iframeWindow =
+      reader?._iframeWindow ||
+      (reader?._internalReader as any)?._primaryView?._iframeWindow;
+    const app = iframeWindow?.PDFViewerApplication;
+    const eventBus = app?.eventBus as any;
+    const searchState = {
+      query: cleanedQuery,
+      phraseSearch: true,
+      caseSensitive: false,
+      entireWord: true,
+      highlightAll: true,
+      findPrevious: false,
+      matchDiacritics: false,
+    };
+    if (typeof (app?.findController as any)?.executeCommand === "function") {
+      (app.findController as any).executeCommand("find", searchState);
+      (app.findController as any).executeCommand("find", {
+        ...searchState,
+        type: "again",
+      });
+      return;
+    }
+    if (typeof eventBus?.dispatch === "function") {
+      eventBus.dispatch("find", {
+        source: app || reader,
+        type: "",
+        ...searchState,
+      });
+      await sleep(120);
+      eventBus.dispatch("find", {
+        source: app || reader,
+        type: "again",
+        ...searchState,
+      });
+      return;
+    }
+  } catch (e) {}
+
+  try {
+    const iframeWindow =
+      reader?._iframeWindow ||
+      (reader?._internalReader as any)?._primaryView?._iframeWindow;
+    iframeWindow?.focus?.();
+    if (typeof iframeWindow?.find === "function") {
+      iframeWindow.find(
+        cleanedQuery,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+      );
+    }
+  } catch (e) {}
+}
+
+async function openSourceLink(src: string, query: string): Promise<void> {
+  const parsed = parseSourceLink(src);
+  if (!parsed) return;
+
+  const location: any = { pageIndex: parsed.pageIndex };
+  if (parsed.annotationKey) {
+    location.annotationKey = parsed.annotationKey;
+  }
+
+  try {
+    await (Zotero.Reader as any).open(parsed.itemID, location, {
+      openInBackground: false,
+      allowDuplicate: false,
+    });
+  } catch (e) {
+    Zotero.debug("VocabBuilder: open source: " + e);
+  }
+
+  const reader = await waitForReaderByItemID(parsed.itemID);
+  if (!reader) return;
+  await highlightReaderQuery(reader, query);
+}
+
+function findSourceAnchor(target: any): any | null {
+  try {
+    const element =
+      target?.nodeType === 1 ? target : target?.parentElement || null;
+    const anchor = element?.closest?.("a") || null;
+    if (!anchor) return null;
+
+    const href = String(anchor.getAttribute?.("href") || "").trim();
+    const source = String(anchor.getAttribute?.("data-vb-source") || "").trim();
+    if (source.startsWith("zotero://open-pdf/")) return anchor;
+    if (href.startsWith("zotero://open-pdf/")) return anchor;
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function attachNoteEditorLinks() {
+  const editors = ((Zotero.Notes as any)?._editorInstances || []) as any[];
+  for (const editor of editors) {
+    const noteID = getNoteID(editor?._item);
+    if (!noteID || !_noteID || noteID !== _noteID) continue;
+
+    const win = editor?._iframeWindow;
+    const doc = win?.document;
+    if (!win || !doc) continue;
+
+    const seenKey = String(noteID);
+    if (_editorSeen[seenKey]) continue;
+
+    doc.addEventListener(
+      "click",
+      (event: any) => {
+        const anchor = findSourceAnchor(event.target);
+        if (!anchor) return;
+
+        const src = String(
+          anchor.getAttribute("data-vb-source") ||
+            anchor.getAttribute("href") ||
+            "",
+        ).trim();
+        const query = String(
+          anchor.getAttribute("data-vb-query") ||
+            anchor.getAttribute("data-vb-word") ||
+            anchor.querySelector?.("strong")?.textContent ||
+            anchor.textContent ||
+            "",
+        ).trim();
+        if (!src) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        void openSourceLink(src, query);
+      },
+      true,
+    );
+
+    _editorSeen[seenKey] = true;
+  }
 }
 
 function attachReaderKeys(win: any, reader?: any) {
@@ -1261,11 +1404,6 @@ async function handleAltA(e: any, text: string, reader?: any) {
   const entry = await addWord(word, selectedText, buildReaderSourceLink(source));
   if (!entry) {
     pwNotify(t(_uiLanguage, "notify.duplicate", { word }), "error");
-    return;
-  }
-
-  if (source && !source.annotationKey) {
-    void upgradeEntrySourceLink(entry.word, entry.id, source);
   }
 }
 
@@ -1340,7 +1478,9 @@ async function onStartup() {
     await reloadStateFromDisk();
 
     pollReaders();
+    attachNoteEditorLinks();
     setInterval(pollReaders, 3000);
+    setInterval(attachNoteEditorLinks, 1500);
 
     for (const win of Zotero.getMainWindows()) {
       addMenu(win);
@@ -1385,10 +1525,12 @@ async function reloadStateFromDisk() {
     const note = await ensureNote(false);
     if (note) {
       await syncEntriesFromNote(note);
+      attachNoteEditorLinks();
       return;
     }
 
     rememberNote(null);
+    _editorSeen = {};
     _ws = [];
     refreshUI();
   } catch (e) {

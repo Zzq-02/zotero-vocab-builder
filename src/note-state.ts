@@ -112,7 +112,7 @@ export function parseNoteHTML(html: string): NoteEntry[] {
 
   for (const rawHTML of matches) {
     const structured =
-      parseVisibleStructuredEntry(rawHTML) || parseStructuredEntry(rawHTML);
+      parseStructuredEntry(rawHTML) || parseVisibleStructuredEntry(rawHTML);
     const fallbackWord =
       readMarkedWord(rawHTML) || readFirstVisibleWord(rawHTML);
     const word = structured?.word || fallbackWord;
@@ -254,9 +254,15 @@ function renderStructuredEntry(
   const attrs = [
     `class="vb-entry"`,
     `data-vb-id="${escapeHtml(entry.id)}"`,
+    `data-vb-word="${escapeHtml(entry.word)}"`,
     `data-vb-created="${escapeHtml(entry.created)}"`,
     `data-vb-tries="${String(entry.tries || 0)}"`,
     `data-vb-status="${escapeHtml(entry.status)}"`,
+    `data-vb-trans="${escapeHtml(entry.trans)}"`,
+    `data-vb-def="${escapeHtml(entry.def)}"`,
+    `data-vb-pos="${escapeHtml(entry.pos)}"`,
+    `data-vb-phone="${escapeHtml(entry.phone)}"`,
+    `data-vb-ctx="${escapeHtml(entry.ctx)}"`,
   ];
   if (entry.src) {
     attrs.push(`data-vb-src="${escapeHtml(entry.src)}"`);
@@ -268,7 +274,7 @@ function renderStructuredEntry(
       : entry.status === "failed"
         ? STATUS_SYMBOLS.failed
         : STATUS_SYMBOLS.pending;
-  const word = renderLinkedWord(entry.word, entry.src);
+  const word = renderWordLabel(entry.word, entry.src);
   const fields = [
     renderVisibleField("translation", entry.trans, language),
     renderVisibleField("definition", entry.def, language),
@@ -289,10 +295,22 @@ function renderStructuredEntry(
   ].join("");
 }
 
-function renderLinkedWord(word: string, href: string): string {
+function renderWordLabel(word: string, href: string): string {
   const content = `<strong>${escapeHtml(word)}</strong>`;
   if (!href) return content;
-  return `<a href="${escapeHtml(href)}">${content}</a>`;
+  return `${content} ${renderSourceLink(word, href)}`;
+}
+
+function renderSourceLink(word: string, href: string): string {
+  return [
+    `<a`,
+    `href="${escapeHtml(href)}"`,
+    `class="vb-source-link"`,
+    `data-vb-source="${escapeHtml(href)}"`,
+    `data-vb-query="${escapeHtml(word)}"`,
+    `title="Open source"`,
+    `>↗</a>`,
+  ].join(" ");
 }
 
 function renderVisibleField(
@@ -310,10 +328,14 @@ function renderVisibleField(
 
 function parseStructuredEntry(rawHTML: string): VocabEntry | null {
   const attrWord = cleanWord(readAttr(rawHTML, "data-vb-word"));
-  if (!attrWord || !visibleWordStillPresent(rawHTML, attrWord)) return null;
+  if (!attrWord) return null;
+  if (hasExplicitlyBlankMarkedWord(rawHTML)) return null;
+  const visibleWord = readMarkedWord(rawHTML) || readFirstVisibleWord(rawHTML);
+  const effectiveWord =
+    visibleWord && !looksLikeMarkupWord(visibleWord) ? visibleWord : attrWord;
 
-  return createStableNoteEntry(attrWord, {
-    id: readAttr(rawHTML, "data-vb-id") || buildStableEntryID(attrWord),
+  return createStableNoteEntry(effectiveWord, {
+    id: readAttr(rawHTML, "data-vb-id") || buildStableEntryID(effectiveWord),
     status: normalizeStatus(readAttr(rawHTML, "data-vb-status")),
     tries: Number.parseInt(readAttr(rawHTML, "data-vb-tries") || "0", 10) || 0,
     created:
@@ -360,16 +382,26 @@ function readMarkedWord(rawHTML: string): string {
   return cleanWord(decodeHtml(match?.[1] || ""));
 }
 
+function hasExplicitlyBlankMarkedWord(rawHTML: string): boolean {
+  const normalizedHTML = normalizeEncodedMarkup(rawHTML);
+  const match = normalizedHTML.match(/<(?:b|strong)>([\s\S]*?)<\/(?:b|strong)>/i);
+  if (!match) return false;
+  return !cleanWord(decodeHtml(match[1] || ""));
+}
+
 function readFirstVisibleWord(rawHTML: string): string {
   const text = stripStatusSymbols(readVisibleText(rawHTML));
   const labelMatch = text.match(
     new RegExp(`(?:${visibleFieldLabels().map(escapeRegExp).join("|")})\\s*[:\uFF1A]`, "i"),
   );
   const candidateText = labelMatch ? text.slice(0, labelMatch.index) : text;
-  const word = cleanWord(
+  let word = cleanWord(
     candidateText.match(/[a-zA-Z][a-zA-Z'\-]*(?: [a-zA-Z][a-zA-Z'\-]*)?/)?.[0] ||
       "",
   );
+  if (!word || looksLikeMarkupWord(word)) {
+    word = cleanWord(readVisibleFieldValue(text, NOTE_FIELD_ALIASES.context));
+  }
   return looksLikeMarkupWord(word) ? "" : word;
 }
 
@@ -460,6 +492,7 @@ function looksLikeMarkupWord(word: string): boolean {
   if (!word) return false;
 
   const markupTokens = new Set([
+    "a",
     "span",
     "style",
     "color",
@@ -470,11 +503,28 @@ function looksLikeMarkupWord(word: string): boolean {
     "div",
     "li",
     "br",
+    "href",
+    "rel",
+    "noopener",
+    "noreferrer",
+    "nofollow",
+    "zotero",
+    "open",
+    "pdf",
+    "library",
+    "items",
+    "page",
   ]);
   return word.split(/\s+/).some((token) => {
     if (!token) return false;
     if (markupTokens.has(token)) return true;
-    return token.startsWith("style") || token.startsWith("color");
+    return (
+      token.startsWith("style") ||
+      token.startsWith("color") ||
+      token.startsWith("href") ||
+      token.startsWith("zotero") ||
+      token.startsWith("rel")
+    );
   });
 }
 

@@ -345,36 +345,37 @@
 
       <html:div
         style="
-          display: flex;
-          align-items: flex-start;
-          gap: 16px;
+          display: block;
           margin: 8px 0 12px 0;
         "
       >
-        <html:button
-          onclick="VocabBuilderPreferences.openDonationQr()"
-          style="
-            padding: 0;
-            border: none;
-            background: transparent;
-            cursor: zoom-in;
-          "
-        >
-          <html:img
-            src="chrome://__addonRef__/content/assets/donation-qr.jpg"
-            data-vb-i18n-alt="donate.qrAlt"
+        <html:div style="margin: 0 0 10px 0">
+          <html:button
+            onclick="VocabBuilderPreferences.openDonationQr()"
             style="
-              width: 220px;
-              height: 220px;
-              object-fit: contain;
-              border: 1px solid #d9d9d9;
-              border-radius: 10px;
-              padding: 10px;
-              background: #fff;
+              padding: 0;
+              border: none;
+              background: transparent;
+              cursor: zoom-in;
             "
-          />
-        </html:button>
-        <html:div style="color: #666; line-height: 1.55; max-width: 360px">
+          >
+            <html:img
+              src="chrome://__addonRef__/content/assets/donation-qr.jpg"
+              data-vb-i18n-alt="donate.qrAlt"
+              style="
+                display: block;
+                width: 220px;
+                height: 220px;
+                object-fit: contain;
+                border: 1px solid #d9d9d9;
+                border-radius: 10px;
+                padding: 10px;
+                background: #fff;
+              "
+            />
+          </html:button>
+        </html:div>
+        <html:div style="color: #666; line-height: 1.55; max-width: 520px">
           <html:strong
             data-vb-i18n="donate.qrTitle"
             style="color: #333"
@@ -388,7 +389,7 @@
 
       <html:p
         data-vb-i18n="donate.summary"
-        style="margin: 6px 0 0 0; color: #666; line-height: 1.55"
+        style="margin: 6px 0 0 0; color: #666; line-height: 1.55; max-width: 520px"
       ></html:p>
 
       <html:div
@@ -425,7 +426,7 @@
       </html:div>
     </html:section>
 
-    <html:section style="margin: 10px 0 16px 0">
+    <html:section style="margin: 18px 0 16px 0; clear: both">
       <html:h3 data-vb-i18n="manual.title" style="margin: 0 0 8px 0"></html:h3>
       <html:ol
         style="
