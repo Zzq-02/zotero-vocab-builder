@@ -509,6 +509,18 @@ async function syncNoteSafe(): Promise<void> {
   }
 }
 
+async function waitForNoteSyncIdle(): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    if (!state.syncBusy && !state.syncPending) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+async function queueNoteSync(): Promise<void> {
+  void syncNoteSafe();
+  await waitForNoteSyncIdle();
+}
+
 async function syncNote(): Promise<void> {
   let note = await ensureNote(true);
   if (!note?.isNote?.()) {
@@ -553,17 +565,24 @@ async function addWord(
     ...state.entries.filter((item) => item.word !== entry.word),
   ];
   refreshWordCount();
-  await syncNoteSafe();
-  void backgroundSync(entry, cleaned);
+  const noteSync = queueNoteSync();
+  void backgroundSync(entry, cleaned, noteSync);
+  await noteSync;
   return entry;
 }
 
-async function backgroundSync(entry: VocabEntry, cleaned: string) {
+async function backgroundSync(
+  entry: VocabEntry,
+  cleaned: string,
+  noteSync: Promise<void> = Promise.resolve(),
+) {
   try {
     const targetId = entry.id;
     const online = typeof navigator !== "undefined" ? navigator.onLine : true;
     if (online) {
-      const result = await translate(cleaned);
+      const resultPromise = translate(cleaned);
+      const result = await resultPromise;
+      await noteSync;
       const latestNote = await ensureNote(false);
       if (latestNote && !(await noteStillHasWord(latestNote, cleaned))) return;
       const liveEntry = findLiveEntry(cleaned, targetId);
@@ -588,6 +607,7 @@ async function backgroundSync(entry: VocabEntry, cleaned: string) {
         );
       }
     } else {
+      await noteSync;
       const latestNote = await ensureNote(false);
       if (latestNote && !(await noteStillHasWord(latestNote, cleaned))) return;
       const liveEntry = findLiveEntry(cleaned, targetId);

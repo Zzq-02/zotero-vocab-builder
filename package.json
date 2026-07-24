@@ -2,9 +2,9 @@
   "name": "zotero-vocab-builder",
   "type": "module",
   "version": "1.0.0",
-  "description": "Vocabulary Builder - 在 Zotero 阅读文献时快捷收集、翻译、同步和导出生词",
+  "description": "Collect unfamiliar words while reading in Zotero and store them in a dedicated vocabulary note with translations and source links.",
   "config": {
-    "addonName": "Vocabulary Builder",
+    "addonName": "Zotero 生词笔记",
     "addonID": "vocab-builder@zotero.org",
     "addonRef": "vocabbuilder",
     "addonInstance": "VocabBuilder",
@@ -12,13 +12,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://gitee.com/zzq_02_admin/zotero-vocab-builder.git"
+    "url": "git+https://github.com/Zzq-02/zotero-vocab-builder.git"
   },
   "author": "VocabBuilder",
   "bugs": {
-    "url": "https://gitee.com/zzq_02_admin/zotero-vocab-builder/issues"
+    "url": "https://github.com/Zzq-02/zotero-vocab-builder/issues"
   },
-  "homepage": "https://gitee.com/zzq_02_admin/zotero-vocab-builder",
+  "homepage": "https://github.com/Zzq-02/zotero-vocab-builder",
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "start": "zotero-plugin serve",

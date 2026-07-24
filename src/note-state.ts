@@ -330,6 +330,7 @@ function parseStructuredEntry(rawHTML: string): VocabEntry | null {
   const attrWord = cleanWord(readAttr(rawHTML, "data-vb-word"));
   if (!attrWord) return null;
   if (hasExplicitlyBlankMarkedWord(rawHTML)) return null;
+  if (!visibleWordStillPresent(rawHTML, attrWord)) return null;
   const visibleWord = readMarkedWord(rawHTML) || readFirstVisibleWord(rawHTML);
   const effectiveWord =
     visibleWord && !looksLikeMarkupWord(visibleWord) ? visibleWord : attrWord;
@@ -355,6 +356,8 @@ function parseVisibleStructuredEntry(rawHTML: string): VocabEntry | null {
 
   const word = readMarkedWord(rawHTML) || readFirstVisibleWord(rawHTML);
   if (!word) return null;
+  const attrWord = cleanWord(readAttr(rawHTML, "data-vb-word"));
+  if (attrWord && !visibleWordStillPresent(rawHTML, attrWord)) return null;
 
   return createStableNoteEntry(word, {
     id: readAttr(rawHTML, "data-vb-id") || buildStableEntryID(word),
@@ -417,7 +420,11 @@ function visibleWordStillPresent(rawHTML: string, word: string): boolean {
   const markedWord = readMarkedWord(rawHTML);
   if (markedWord) return markedWord === word;
 
-  return readFirstVisibleWord(rawHTML) === word;
+  if (readFirstVisibleWord(rawHTML) !== word) return false;
+
+  // A plain context match is not a visible word label. Keep it only for the
+  // malformed legacy markup that Zotero sometimes turns into text.
+  return looksLikeMarkupWord(stripStatusSymbols(readVisibleText(rawHTML)));
 }
 
 function readVisibleText(rawHTML: string): string {

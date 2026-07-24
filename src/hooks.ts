@@ -744,6 +744,18 @@ async function _doSyncNoteSafe(): Promise<void> {
   }
 }
 
+async function waitForNoteSyncIdle(): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    if (!_syncBusy && !_syncPending) return;
+    await sleep(25);
+  }
+}
+
+async function queueNoteSync(): Promise<void> {
+  void _doSyncNoteSafe();
+  await waitForNoteSyncIdle();
+}
+
 async function _doSyncNote(): Promise<void> {
   let note = await ensureNote(true);
   if (!note?.isNote?.()) {
@@ -803,17 +815,24 @@ async function addWord(
 
   _ws = [entry, ..._ws.filter((item) => item.word !== entry.word)];
   refreshUI();
-  await _doSyncNoteSafe();
-  void _backgroundSync(entry, cleaned);
+  const noteSync = queueNoteSync();
+  void _backgroundSync(entry, cleaned, noteSync);
+  await noteSync;
   return entry;
 }
 
-async function _backgroundSync(entry: VocabEntry, cleaned: string) {
+async function _backgroundSync(
+  entry: VocabEntry,
+  cleaned: string,
+  noteSync: Promise<void> = Promise.resolve(),
+) {
   try {
     const targetId = entry.id;
     const online = typeof navigator !== "undefined" ? navigator.onLine : true;
     if (online) {
-      const result = await _translate(cleaned);
+      const resultPromise = _translate(cleaned);
+      const result = await resultPromise;
+      await noteSync;
       const latestNote = await ensureNote(false);
       if (latestNote && !(await noteStillHasWord(latestNote, cleaned))) return;
       const liveEntry = findLiveEntry(cleaned, targetId);
@@ -838,6 +857,7 @@ async function _backgroundSync(entry: VocabEntry, cleaned: string) {
         );
       }
     } else {
+      await noteSync;
       const latestNote = await ensureNote(false);
       if (latestNote && !(await noteStillHasWord(latestNote, cleaned))) return;
       const liveEntry = findLiveEntry(cleaned, targetId);
@@ -1104,6 +1124,7 @@ type ReaderSourceContext = {
   attachmentKey: string;
   libraryID: number;
   pageIndex: number;
+  position: any | null;
   annotationKey: string;
 };
 
@@ -1123,6 +1144,7 @@ function captureReaderSourceContext(reader: any): ReaderSourceContext | null {
       attachmentKey: String(item.key),
       libraryID: Number(item.libraryID),
       pageIndex,
+      position: clonePosition(annotation?.position),
       annotationKey: readAnnotationKey(annotation),
     };
   } catch (e) {
@@ -1136,6 +1158,11 @@ function buildReaderSourceLink(source: ReaderSourceContext | null): string {
   try {
     const libraryPath = buildOpenPDFLibraryPath(source.libraryID);
     const params = [`page=${source.pageIndex + 1}`];
+    if (source.position) {
+      params.push(
+        `position=${encodeURIComponent(JSON.stringify(source.position))}`,
+      );
+    }
     if (source.annotationKey) {
       params.push(`annotation=${encodeURIComponent(source.annotationKey)}`);
     }
@@ -1163,7 +1190,8 @@ function readAnnotationKey(annotation: any): string {
 type ParsedSourceLink = {
   itemID: number;
   pageIndex: number;
-  annotationKey: string;
+  annotationID: string;
+  position: any | null;
 };
 
 function parseSourceLink(src: string): ParsedSourceLink | null {
@@ -1178,9 +1206,10 @@ function parseSourceLink(src: string): ParsedSourceLink | null {
     const params = new URLSearchParams(match[3]);
     const page = Number(params.get("page") || "0");
     const pageIndex = Number.isFinite(page) && page > 0 ? page - 1 : 0;
-    const annotationKey = readAnnotationKey({
+    const annotationID = readAnnotationKey({
       key: params.get("annotation") || "",
     });
+    const position = parseSourcePosition(params.get("position"));
 
     const libraryID =
       libraryPath === "library"
@@ -1192,7 +1221,7 @@ function parseSourceLink(src: string): ParsedSourceLink | null {
     const itemID = Number(item?.id || item?.itemID || 0);
     if (!itemID) return null;
 
-    return { itemID, pageIndex, annotationKey };
+    return { itemID, pageIndex, annotationID, position };
   } catch (e) {
     return null;
   }
@@ -1227,18 +1256,137 @@ async function waitForReaderByItemID(itemID: number): Promise<any | null> {
   return null;
 }
 
+function clonePosition(position: any): any | null {
+  if (!position) return null;
+
+  try {
+    return JSON.parse(JSON.stringify(position));
+  } catch (e) {
+    return null;
+  }
+}
+
+function parseSourcePosition(raw: string | null): any | null {
+  if (!raw) return null;
+  try {
+    const position = JSON.parse(decodeURIComponent(raw));
+    return isValidReaderPosition(position) ? position : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function isValidReaderPosition(position: any): boolean {
+  if (!position || typeof position !== "object") return false;
+  if (!Number.isInteger(position.pageIndex) || position.pageIndex < 0) {
+    return false;
+  }
+  const hasRects = Array.isArray(position.rects) && position.rects.length > 0;
+  const hasPaths = Array.isArray(position.paths) && position.paths.length > 0;
+  const hasNextPageRects =
+    Array.isArray(position.nextPageRects) && position.nextPageRects.length > 0;
+  return hasRects || hasPaths || hasNextPageRects;
+}
+
+function buildReaderFindState(previousState: any, query: string) {
+  return {
+    popupOpen: previousState?.popupOpen ?? false,
+    active: true,
+    query,
+    highlightAll: true,
+    caseSensitive: false,
+    entireWord: true,
+    index: null,
+    result: null,
+  };
+}
+
+async function triggerNativeReaderFind(reader: any, query: string): Promise<boolean> {
+  const internalReader = reader?._internalReader || reader;
+  if (!internalReader) return false;
+
+  const primary = internalReader._lastViewPrimary ?? true;
+  const stateKey = primary ? "primaryViewFindState" : "secondaryViewFindState";
+  const view = primary ? internalReader._primaryView : internalReader._secondaryView;
+  if (!view) return false;
+
+  try {
+    await view.initializedPromise;
+  } catch (e) {}
+
+  const nextFindState = buildReaderFindState(
+    internalReader?._state?.[stateKey],
+    query,
+  );
+  const resetFindState = {
+    ...nextFindState,
+    active: false,
+  };
+
+  if (typeof internalReader._updateState === "function") {
+    internalReader._updateState({
+      [stateKey]: resetFindState,
+    });
+    internalReader._updateState({
+      [stateKey]: nextFindState,
+    });
+    return true;
+  }
+
+  if (typeof view.setFindState === "function") {
+    await view.setFindState(resetFindState);
+    await view.setFindState(nextFindState);
+    return true;
+  }
+
+  return false;
+}
+
+async function getReaderSearchContext(reader: any): Promise<{
+  iframeWindow: any;
+  app: any;
+} | null> {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const iframeWindow =
+      reader?._iframeWindow ||
+      (reader?._internalReader as any)?._primaryView?._iframeWindow;
+    const app = iframeWindow?.PDFViewerApplication;
+
+    if (app) {
+      try {
+        await app.initializedPromise;
+      } catch (e) {}
+
+      if (
+        typeof (app.findController as any)?.executeCommand === "function" ||
+        typeof app.eventBus?.dispatch === "function" ||
+        typeof iframeWindow?.find === "function"
+      ) {
+        return { iframeWindow, app };
+      }
+    }
+
+    await sleep(120);
+  }
+
+  return null;
+}
+
 async function highlightReaderQuery(reader: any, query: string): Promise<void> {
   const rawQuery = String(query || "").trim();
   const cleanedQuery = cleanWord(rawQuery) || rawQuery;
   if (!cleanedQuery) return;
 
-  await sleep(320);
+  if (await triggerNativeReaderFind(reader, cleanedQuery)) {
+    return;
+  }
+
+  const searchContext = await getReaderSearchContext(reader);
+  if (!searchContext) return;
+
+  const { iframeWindow, app } = searchContext;
 
   try {
-    const iframeWindow =
-      reader?._iframeWindow ||
-      (reader?._internalReader as any)?._primaryView?._iframeWindow;
-    const app = iframeWindow?.PDFViewerApplication;
     const eventBus = app?.eventBus as any;
     const searchState = {
       query: cleanedQuery,
@@ -1274,9 +1422,6 @@ async function highlightReaderQuery(reader: any, query: string): Promise<void> {
   } catch (e) {}
 
   try {
-    const iframeWindow =
-      reader?._iframeWindow ||
-      (reader?._internalReader as any)?._primaryView?._iframeWindow;
     iframeWindow?.focus?.();
     if (typeof iframeWindow?.find === "function") {
       iframeWindow.find(
@@ -1296,9 +1441,11 @@ async function openSourceLink(src: string, query: string): Promise<void> {
   const parsed = parseSourceLink(src);
   if (!parsed) return;
 
-  const location: any = { pageIndex: parsed.pageIndex };
-  if (parsed.annotationKey) {
-    location.annotationKey = parsed.annotationKey;
+  const location: any = parsed.position
+    ? { position: parsed.position }
+    : { pageIndex: parsed.pageIndex };
+  if (!parsed.position && parsed.annotationID) {
+    location.pageIndex = parsed.pageIndex;
   }
 
   try {
@@ -1312,6 +1459,21 @@ async function openSourceLink(src: string, query: string): Promise<void> {
 
   const reader = await waitForReaderByItemID(parsed.itemID);
   if (!reader) return;
+
+  if (parsed.position) return;
+
+  if (parsed.annotationID) {
+    const annotations = (reader?._internalReader as any)?._state?.annotations || [];
+    const annotation = annotations.find((item: any) => item?.id === parsed.annotationID);
+    const position = clonePosition(annotation?.position);
+    if (position) {
+      try {
+        await reader.navigate({ position });
+        return;
+      } catch (e) {}
+    }
+  }
+
   await highlightReaderQuery(reader, query);
 }
 
@@ -1341,7 +1503,7 @@ function attachNoteEditorLinks() {
     const win = editor?._iframeWindow;
     const doc = win?.document;
     if (!win || !doc) continue;
-    if (win._vbSourceLinksAttached) continue;
+    if (doc._vbSourceLinksAttached) continue;
 
     doc.addEventListener(
       "click",
@@ -1370,7 +1532,7 @@ function attachNoteEditorLinks() {
       true,
     );
 
-    win._vbSourceLinksAttached = true;
+    doc._vbSourceLinksAttached = true;
   }
 }
 
@@ -1412,6 +1574,7 @@ async function handleAltA(e: any, text: string, reader?: any) {
   const entry = await addWord(word, selectedText, buildReaderSourceLink(source));
   if (!entry) {
     pwNotify(t(_uiLanguage, "notify.duplicate", { word }), "error");
+    return;
   }
 }
 
@@ -1483,7 +1646,7 @@ async function onStartup() {
 
     await registerPrefsPane();
     registerNoteObserver();
-    await reloadStateFromDisk();
+    await reloadStateFromDisk({ upgradeLegacyMarkup: true });
 
     pollReaders();
     attachNoteEditorLinks();
@@ -1525,7 +1688,7 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow) {
   refreshUI();
 }
 
-async function reloadStateFromDisk() {
+async function reloadStateFromDisk(options: { upgradeLegacyMarkup?: boolean } = {}) {
   try {
     loadSettingsFromPrefs();
     await migrateLegacyStateIfNeeded();
@@ -1533,7 +1696,7 @@ async function reloadStateFromDisk() {
     const note = await ensureNote(false);
     if (note) {
       await syncEntriesFromNote(note);
-      if (noteNeedsMarkupUpgrade(note)) {
+      if (options.upgradeLegacyMarkup && noteNeedsMarkupUpgrade(note)) {
         await _doSyncNoteSafe();
       }
       attachNoteEditorLinks();

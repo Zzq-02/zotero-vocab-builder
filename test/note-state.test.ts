@@ -99,6 +99,21 @@ describe("note-state", function () {
     assert.lengthOf(parsed, 0);
   });
 
+  it("does not restore a deleted word from its remaining context", function () {
+    const entry = createVocabEntry("gamma", {
+      status: "completed",
+      ctx: "A gamma ray is energetic.",
+    });
+    const html = renderNoteHTML(
+      [{ word: entry.word, entry }],
+      new Date("2026-07-23T00:00:00.000Z"),
+    ).replace(`<strong>gamma</strong>`, "");
+
+    const parsed = parseNoteHTML(html);
+
+    assert.lengthOf(parsed, 0);
+  });
+
   it("only keeps unresolved structured entries for in-memory retry state", function () {
     const pending = createVocabEntry("delta", {
       status: "pending",
