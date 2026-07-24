@@ -815,10 +815,11 @@ async function _backgroundSync(entry: VocabEntry, cleaned: string) {
           t(_uiLanguage, "notify.translationFailed", { word: cleaned }),
           "error",
         );
-      } else if (result.trans) {
-        pwNotify(`${cleaned} -> ${result.trans}`, "success");
-      } else if (result.def) {
-        pwNotify(`${cleaned}: ${result.def.substring(0, 40)}`, "success");
+      } else {
+        pwNotify(
+          t(_uiLanguage, "notify.addedTranslated", { word: cleaned }),
+          "success",
+        );
       }
     } else {
       const latestNote = await ensureNote(false);
@@ -932,10 +933,6 @@ async function onPrefsEvent(type: string, data: any) {
         addWord(word, "", "")
           .then((entry) => {
             if (entry) {
-              pwNotify(
-                t(_uiLanguage, "notify.added", { word: entry.word }),
-                "success",
-              );
               refreshPrefsCounts();
             } else {
               pwNotify(t(_uiLanguage, "notify.duplicateInvalid"), "error");
@@ -1020,10 +1017,7 @@ function addMenu(win: any) {
         addWord(word.trim(), "", "")
           .then((entry) => {
             if (entry) {
-              pwNotify(
-                t(_uiLanguage, "notify.added", { word: entry.word }),
-                "success",
-              );
+              return;
             } else {
               pwNotify(t(_uiLanguage, "notify.duplicateInvalid"), "error");
             }
@@ -1115,10 +1109,8 @@ async function handleAltA(e: any, text: string) {
   if (!word) return;
 
   const entry = await addWord(word, selectedText, "");
-  if (entry) {
-    pwNotify(t(_uiLanguage, "notify.added", { word: entry.word }), "success");
-  } else {
-    pwNotify(t(_uiLanguage, "notify.duplicate", { word }));
+  if (!entry) {
+    pwNotify(t(_uiLanguage, "notify.duplicate", { word }), "error");
   }
 }
 

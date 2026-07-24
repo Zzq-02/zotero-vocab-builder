@@ -576,10 +576,11 @@ async function backgroundSync(entry: VocabEntry, cleaned: string) {
           t(state.uiLanguage, "notify.translationFailed", { word: cleaned }),
           "error",
         );
-      } else if (result.trans) {
-        notify(`${cleaned} -> ${result.trans}`, "success");
-      } else if (result.def) {
-        notify(`${cleaned}: ${result.def.substring(0, 40)}`, "success");
+      } else {
+        notify(
+          t(state.uiLanguage, "notify.addedTranslated", { word: cleaned }),
+          "success",
+        );
       }
     } else {
       const latestNote = await ensureNote(false);
@@ -803,10 +804,6 @@ async function quickAddWord() {
   const entry = await addWord(word, "", "");
   if (entry) {
     await notifyMainAddon();
-    notify(
-      t(state.uiLanguage, "notify.added", { word: entry.word }),
-      "success",
-    );
   } else {
     notify(t(state.uiLanguage, "notify.duplicateInvalid"), "error");
   }

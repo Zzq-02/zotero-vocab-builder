@@ -65,7 +65,7 @@ const UI_TEXT: Record<UILanguage, Record<string, string>> = {
     "donate.qrAlt": "微信赞赏码",
     "donate.qrBody": "打开微信扫一扫即可赞赏。",
     "donate.summary":
-      "感谢支持 Zotero Vocabulary Builder。如果这个插件帮你提升了文献阅读效率，欢迎扫码赞赏支持作者继续维护。",
+      "感谢支持 Zotero Vocabulary Builder。如果这个插件帮助你提升了文献阅读效率，欢迎扫码赞赏支持作者继续维护。",
     "manual.title": "使用手册",
     "manual.item1.html":
       "阅读 PDF 或笔记时选中英文单词，按 <code>Alt+A</code> 添加到生词表。",
@@ -77,8 +77,9 @@ const UI_TEXT: Record<UILanguage, Record<string, string>> = {
       "在“导出”区域选择格式和范围，可导出到常用表格或背单词软件。",
     "manual.footer":
       "建议首次安装后先添加 1 个测试单词，再打开生词表确认数量和翻译状态是否正常。",
+    "notify.addedTranslated": "已添加并完成翻译：{word}",
     "notify.translationFailed": "翻译失败：{word}",
-    "notify.offlineRetry": "离线，联网后会重试：{word}",
+    "notify.offlineRetry": "已添加，联网后会自动翻译：{word}",
     "notify.error": "错误：{message}",
     "notify.noExport": "没有可导出的生词。",
     "notify.exported": "已导出为 {extension}。",
@@ -176,8 +177,10 @@ const UI_TEXT: Record<UILanguage, Record<string, string>> = {
       "Choose an export format and scope to send data to spreadsheets or vocabulary apps.",
     "manual.footer":
       "After first installation, add one test word and open the vocabulary note to confirm the count and translation status.",
-    "notify.translationFailed": "Translation failed for: {word}",
-    "notify.offlineRetry": "Offline. Will retry later: {word}",
+    "notify.addedTranslated": "Added and translated: {word}",
+    "notify.translationFailed": "Translation failed: {word}",
+    "notify.offlineRetry":
+      "Added. Translation will retry when back online: {word}",
     "notify.error": "Error: {message}",
     "notify.noExport": "No vocabulary to export.",
     "notify.exported": "Exported as {extension}.",
