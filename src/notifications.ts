@@ -5,6 +5,7 @@ export type NotificationTone = "success" | "error" | "info";
 const PLUGIN_ICON_URI = `chrome://${config.addonRef}/content/icons/favicon@0.5x.png`;
 const SUCCESS_ICON_URI = "chrome://zotero/skin/tick.png";
 const ERROR_ICON_URI = "chrome://zotero/skin/cross.png";
+const MAX_INLINE_MESSAGE_LENGTH = 72;
 
 const PALETTES: Record<
   NotificationTone,
@@ -66,14 +67,21 @@ function applyLineStyles(line: any, tone: NotificationTone): boolean {
   row.style.background = palette.background;
   row.style.border = `1px solid ${palette.border}`;
   row.style.borderRadius = "10px";
-  row.style.padding = "6px 10px";
+  row.style.padding = "8px 10px";
   row.style.margin = "8px 0 0 0";
-  row.style.minHeight = "30px";
+  row.style.minHeight = "34px";
+  row.style.height = "auto";
+  row.style.maxWidth = "420px";
+  row.style.alignItems = "flex-start";
   row.style.boxShadow = palette.shadow;
 
   text.style.color = palette.text;
   text.style.fontWeight = "600";
   text.style.lineHeight = "1.45";
+  text.style.whiteSpace = "normal";
+  text.style.wordBreak = "break-word";
+  text.style.overflow = "visible";
+  text.style.maxWidth = "360px";
 
   if (image?.style) {
     image.style.width = "18px";
@@ -93,20 +101,40 @@ function queueLineStyles(line: any, tone: NotificationTone, attempts = 12) {
   defer(() => tryApply(attempts), 0);
 }
 
+function compactMessage(message: string): string {
+  const normalized = message.replace(/\s+/g, " ").trim();
+  if (normalized.length <= MAX_INLINE_MESSAGE_LENGTH) return normalized;
+  return `${normalized.slice(0, MAX_INLINE_MESSAGE_LENGTH - 1)}...`;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 export function showNotification(
   message: string,
   tone: NotificationTone = "info",
 ) {
   try {
+    const fullMessage = message.replace(/\s+/g, " ").trim();
+    const inlineMessage = compactMessage(fullMessage);
     const pw = new (Zotero as any).ProgressWindow({ closeOnClick: true });
     pw.changeHeadline(config.addonName);
     pw.show();
 
-    const line = new pw.ItemProgress(resolveIcon(tone), message);
+    const line = new pw.ItemProgress(resolveIcon(tone), inlineMessage);
+    (pw as any).progress = line;
     if (tone === "error") {
       line.setError();
     } else {
       line.setProgress(100);
+    }
+
+    if (fullMessage && fullMessage !== inlineMessage) {
+      pw.addDescription(escapeHtml(fullMessage));
     }
 
     queueLineStyles(line, tone);

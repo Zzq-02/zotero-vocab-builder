@@ -3,11 +3,22 @@
 </linkset>
 <vbox
   onload="
-    if (typeof VocabBuilderPreferences !== 'undefined') {
-      VocabBuilderPreferences.init();
-    } else if (window.VocabBuilderPreferences) {
-      window.VocabBuilderPreferences.init();
-    }
+    (function initVocabBuilderPreferences(attempts) {
+      var controller =
+        window.VocabBuilderPreferences ||
+        (typeof VocabBuilderPreferences !== 'undefined'
+          ? VocabBuilderPreferences
+          : null);
+      if (controller && controller.init) {
+        controller.init();
+        return;
+      }
+      if (attempts > 0) {
+        window.setTimeout(function () {
+          initVocabBuilderPreferences(attempts - 1);
+        }, 50);
+      }
+    })(40)
   "
 >
   <groupbox>

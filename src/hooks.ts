@@ -36,6 +36,23 @@ import { getPref, setPref } from "./utils/prefs";
 const NOTE_ID_PREF = `${config.prefsPrefix}.noteID`;
 const PREF_PANE_SRC = `chrome://${config.addonRef}/content/preferences.xhtml`;
 const PREF_PANE_SCRIPT = `chrome://${config.addonRef}/content/preferences-init.js`;
+const DEFAULT_TEXT_PREFS: Partial<
+  Record<
+    | "customApiUrl"
+    | "customApiHeaders"
+    | "customApiTransPath"
+    | "customApiDefPath"
+    | "customApiPosPath"
+    | "customApiPhonePath"
+    | "exportFormat"
+    | "exportScope",
+    string
+  >
+> = {
+  customApiHeaders: "{}",
+  exportFormat: "csv",
+  exportScope: "all",
+};
 
 let _ws: VocabEntry[] = [];
 let _noteID: number | null = readStoredNoteID();
@@ -599,7 +616,12 @@ function bindTextPref(
   const element = doc.getElementById(id) as any;
   if (!element) return;
 
-  element.value = String(getPref(prefKey) || "");
+  element.value = String(getPref(prefKey) || DEFAULT_TEXT_PREFS[prefKey] || "");
+  if (element.localName === "select" && !element.value) {
+    const firstOption = element.querySelector?.("option") as any;
+    if (firstOption?.value) element.value = firstOption.value;
+  }
+
   const save = () => {
     setPref(prefKey, element.value);
     if (id === "vb-export-format") updateExportHint(doc);

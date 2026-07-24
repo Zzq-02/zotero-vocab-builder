@@ -35,6 +35,23 @@ import { getPref, setPref } from "./utils/prefs";
 
 const NOTE_ID_PREF = `${config.prefsPrefix}.noteID`;
 const prefsGlobal = globalThis as any;
+const DEFAULT_TEXT_PREFS: Partial<
+  Record<
+    | "customApiUrl"
+    | "customApiHeaders"
+    | "customApiTransPath"
+    | "customApiDefPath"
+    | "customApiPosPath"
+    | "customApiPhonePath"
+    | "exportFormat"
+    | "exportScope",
+    string
+  >
+> = {
+  customApiHeaders: "{}",
+  exportFormat: "csv",
+  exportScope: "all",
+};
 
 function getPrefsWindow(): any {
   return typeof prefsGlobal.window !== "undefined"
@@ -44,6 +61,14 @@ function getPrefsWindow(): any {
 
 function getPrefsDocument(): Document {
   return getPrefsWindow().document as Document;
+}
+
+function getMaybePrefsDocument(): Document | null {
+  try {
+    return getPrefsDocument();
+  } catch (e) {
+    return null;
+  }
 }
 
 type APIProvider = "youdao" | "dictionary" | "custom";
@@ -57,6 +82,7 @@ const state: {
   apiName: APIProvider;
   uiLanguage: UILanguage;
   loadPromise: Promise<void> | null;
+  initPromise: Promise<void> | null;
 } = {
   entries: [],
   noteID: readStoredNoteID(),
@@ -66,6 +92,7 @@ const state: {
   apiName: "youdao",
   uiLanguage: DEFAULT_UI_LANGUAGE,
   loadPromise: null,
+  initPromise: null,
 };
 
 function normalizeAPIProvider(value: string): APIProvider {
@@ -568,7 +595,13 @@ function getInputValue(id: string): string {
 
 function setInputValue(id: string, value: string) {
   const element = getPrefsDocument().getElementById(id) as any;
-  if (element) element.value = value;
+  if (!element) return;
+
+  element.value = value;
+  if (element.localName === "select" && !element.value) {
+    const firstOption = element.querySelector?.("option") as any;
+    if (firstOption?.value) element.value = firstOption.value;
+  }
 }
 
 function refreshWordCount() {
@@ -616,7 +649,12 @@ function bindTextPref(
   const element = getPrefsDocument().getElementById(id) as any;
   if (!element) return;
 
-  element.value = String(getPref(prefKey) || "");
+  element.value = String(getPref(prefKey) || DEFAULT_TEXT_PREFS[prefKey] || "");
+  if (element.localName === "select" && !element.value) {
+    const firstOption = element.querySelector?.("option") as any;
+    if (firstOption?.value) element.value = firstOption.value;
+  }
+
   const save = () => {
     setPref(prefKey, element.value);
     if (id === "vb-export-format") updateExportHint();
@@ -850,7 +888,7 @@ async function refreshLatestState() {
   await state.loadPromise;
 }
 
-async function init() {
+async function runInit() {
   if (!getPrefsDocument().getElementById("vb-open-note")) return;
 
   loadSettingsFromPrefs();
@@ -859,6 +897,34 @@ async function init() {
 
   setInputValue("vb-api-select", state.apiName);
   applyLanguage();
+}
+
+async function init() {
+  if (!getPrefsDocument().getElementById("vb-open-note")) return;
+
+  if (!state.initPromise) {
+    state.initPromise = runInit().catch((e) => {
+      state.initPromise = null;
+      throw e;
+    });
+  }
+
+  await state.initPromise;
+}
+
+function scheduleInit(attempts = 40) {
+  const doc = getMaybePrefsDocument();
+  if (doc?.getElementById("vb-open-note")) {
+    void init();
+    return;
+  }
+
+  if (attempts <= 0) return;
+
+  const win = getPrefsWindow();
+  if (typeof win?.setTimeout === "function") {
+    win.setTimeout(() => scheduleInit(attempts - 1), 50);
+  }
 }
 
 const prefsController = {
@@ -883,3 +949,4 @@ prefsGlobal.VocabBuilderPreferences = prefsController;
 if (prefsGlobal.window) {
   prefsGlobal.window.VocabBuilderPreferences = prefsController;
 }
+scheduleInit();
