@@ -59,6 +59,7 @@ describe("note-state", function () {
       pos: "noun",
       phone: "ga-ma",
       ctx: "gamma context",
+      src: "zotero://open-pdf/library/items/ABCD1234?page=7",
     });
 
     const html = renderNoteHTML(
@@ -76,6 +77,10 @@ describe("note-state", function () {
     assert.equal(parsed[0].entry?.pos, "noun");
     assert.equal(parsed[0].entry?.phone, "ga-ma");
     assert.equal(parsed[0].entry?.ctx, "gamma context");
+    assert.equal(
+      parsed[0].entry?.src,
+      "zotero://open-pdf/library/items/ABCD1234?page=7",
+    );
   });
 
   it("treats a structured row as deleted when its visible word is gone", function () {
@@ -147,6 +152,24 @@ describe("note-state", function () {
     assert.notInclude(html, "[OK]");
     assert.notInclude(html, "[ERR]");
     assert.notInclude(html, "data-vb-word");
+  });
+
+  it("renders source hyperlink on the word when source uri exists", function () {
+    const entry = createVocabEntry("omega", {
+      status: "completed",
+      src: "zotero://open-pdf/library/items/XYZW1234?page=3",
+    });
+
+    const html = renderNoteHTML(
+      [{ word: entry.word, entry }],
+      new Date("2026-07-23T00:00:00.000Z"),
+      "en-US",
+    );
+
+    assert.include(
+      html,
+      `<a href="zotero://open-pdf/library/items/XYZW1234?page=3"><strong>omega</strong></a>`,
+    );
   });
 
   it("ignores escaped style markup when rebuilding words from note html", function () {

@@ -1048,8 +1048,7 @@ async function _openVocabNote() {
 
 function getReaderSelection(reader: any): string {
   try {
-    const annotation = (reader._internalReader as any)?._lastView
-      ?._selectionPopup?.annotation;
+    const annotation = getReaderSelectionAnnotation(reader);
     if (annotation?.text) return annotation.text.trim();
   } catch (e) {}
 
@@ -1074,6 +1073,55 @@ function getReaderSelection(reader: any): string {
   return "";
 }
 
+function getReaderSelectionAnnotation(reader: any): any | null {
+  try {
+    return (reader?._internalReader as any)?._lastView?._selectionPopup
+      ?.annotation;
+  } catch (e) {
+    return null;
+  }
+}
+
+function buildReaderSourceLink(reader: any): string {
+  try {
+    const item = reader?._item;
+    if (!item?.isPDFAttachment?.() || !item.key || !item.libraryID) return "";
+
+    const annotation = getReaderSelectionAnnotation(reader);
+    const pageIndex =
+      annotation?.position?.pageIndex ??
+      annotation?.pageIndex ??
+      reader?.state?.pageIndex;
+    if (!Number.isInteger(pageIndex) || pageIndex < 0) return "";
+
+    const libraryPath = buildOpenPDFLibraryPath(item.libraryID);
+    const params = [`page=${pageIndex + 1}`];
+    const annotationKey = readAnnotationKey(annotation);
+    if (annotationKey) {
+      params.push(`annotation=${encodeURIComponent(annotationKey)}`);
+    }
+
+    return `zotero://open-pdf/${libraryPath}/items/${encodeURIComponent(item.key)}?${params.join("&")}`;
+  } catch (e) {
+    return "";
+  }
+}
+
+function buildOpenPDFLibraryPath(libraryID: number): string {
+  try {
+    const path = Zotero.URI.getLibraryPath(libraryID);
+    if (!path) return "library";
+    return /^users\//i.test(path) ? "library" : path;
+  } catch (e) {
+    return "library";
+  }
+}
+
+function readAnnotationKey(annotation: any): string {
+  const key = String(annotation?.key || annotation?.id || "").trim();
+  return /^[A-Z0-9]{8}$/.test(key) ? key : "";
+}
+
 function attachReaderKeys(win: any, reader?: any) {
   if (!win || win._vbAttached) return;
   win._vbAttached = true;
@@ -1093,12 +1141,12 @@ function attachReaderKeys(win: any, reader?: any) {
           text = win.getSelection()?.toString()?.trim() || "";
         } catch (ex) {}
       }
-      if (text) void handleAltA(e, text);
+      if (text) void handleAltA(e, text, reader);
     }
   });
 }
 
-async function handleAltA(e: any, text: string) {
+async function handleAltA(e: any, text: string, reader?: any) {
   e.preventDefault();
   e.stopPropagation();
 
@@ -1108,7 +1156,11 @@ async function handleAltA(e: any, text: string) {
   const word = cleanWord(selectedText);
   if (!word) return;
 
-  const entry = await addWord(word, selectedText, "");
+  const entry = await addWord(
+    word,
+    selectedText,
+    buildReaderSourceLink(reader),
+  );
   if (!entry) {
     pwNotify(t(_uiLanguage, "notify.duplicate", { word }), "error");
   }
@@ -1166,7 +1218,7 @@ function addMainWindowKeys(win: any) {
         const reader = Zotero.Reader.getByTabID(tabID);
         if (!reader) return;
         const text = getReaderSelection(reader);
-        if (text) void handleAltA(e, text);
+        if (text) void handleAltA(e, text, reader);
       } catch (ex) {}
     }
   });

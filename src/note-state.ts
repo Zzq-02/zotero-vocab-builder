@@ -268,6 +268,7 @@ function renderStructuredEntry(
       : entry.status === "failed"
         ? STATUS_SYMBOLS.failed
         : STATUS_SYMBOLS.pending;
+  const word = renderLinkedWord(entry.word, entry.src);
   const fields = [
     renderVisibleField("translation", entry.trans, language),
     renderVisibleField("definition", entry.def, language),
@@ -284,8 +285,14 @@ function renderStructuredEntry(
 
   return [
     `<li ${attrs.join(" ")}>`,
-    `${icon} <strong>${escapeHtml(entry.word)}</strong>${fields}${ctx}</li>`,
+    `${icon} ${word}${fields}${ctx}</li>`,
   ].join("");
+}
+
+function renderLinkedWord(word: string, href: string): string {
+  const content = `<strong>${escapeHtml(word)}</strong>`;
+  if (!href) return content;
+  return `<a href="${escapeHtml(href)}">${content}</a>`;
 }
 
 function renderVisibleField(
