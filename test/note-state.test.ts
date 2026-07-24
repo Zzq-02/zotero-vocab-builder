@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import {
+  buildEntriesFromNoteEntries,
   createVocabEntry,
   extractMutableEntries,
   mergeNoteEntries,
@@ -123,5 +124,32 @@ describe("note-state", function () {
     assert.include(html, "vb-status-failed");
     assert.notInclude(html, "[OK]");
     assert.notInclude(html, "[ERR]");
+  });
+
+  it("rebuilds local state entries from note content", function () {
+    const structured = createVocabEntry("lambda", {
+      status: "failed",
+      tries: 2,
+      trans: "lambda translation",
+    });
+    const html = [
+      `<div class="zotero-note znv1">`,
+      `<h1>Vocabulary List</h1>`,
+      `<ul>`,
+      renderNoteHTML([{ word: structured.word, entry: structured }]).match(
+        /<li\b[^>]*>[\s\S]*?<\/li>/,
+      )?.[0] || "",
+      `<li>legacy <strong>sigma</strong> row</li>`,
+      `</ul>`,
+      `</div>`,
+    ].join("");
+
+    const rebuilt = buildEntriesFromNoteEntries(parseNoteHTML(html));
+
+    assert.lengthOf(rebuilt, 2);
+    assert.equal(rebuilt[0].word, "lambda");
+    assert.equal(rebuilt[0].status, "failed");
+    assert.equal(rebuilt[1].word, "sigma");
+    assert.equal(rebuilt[1].status, "completed");
   });
 });

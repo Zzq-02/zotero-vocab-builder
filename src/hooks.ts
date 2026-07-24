@@ -10,6 +10,7 @@ import {
   type ExportScope,
 } from "./exporters";
 import {
+  buildEntriesFromNoteEntries,
   NOTE_SEARCH_MARKER,
   NOTE_TAG,
   cleanWord,
@@ -410,27 +411,22 @@ async function readNoteEntries(note?: any): Promise<NoteEntry[]> {
   return parseNoteHTML(resolvedNote.getNote() || "");
 }
 
-async function importWordsFromNote(note?: any): Promise<number> {
+function sameEntries(left: VocabEntry[], right: VocabEntry[]): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+async function syncEntriesFromNote(note?: any): Promise<{
+  changed: boolean;
+  count: number;
+}> {
   const noteEntries = await readNoteEntries(note);
-  if (!noteEntries.length) return 0;
-
-  const nextEntries = snapshotEntries();
-  const seen = new Set(nextEntries.map((entry) => entry.word));
-  let imported = 0;
-
-  for (const item of noteEntries) {
-    if (!item.word || seen.has(item.word)) continue;
-    seen.add(item.word);
-    nextEntries.push(createVocabEntry(item.word, { status: "completed" }));
-    imported++;
-  }
-
-  if (!imported) return 0;
-
+  const nextEntries = buildEntriesFromNoteEntries(noteEntries);
+  const changed = !sameEntries(_ws, nextEntries);
+  if (!changed) return { changed: false, count: nextEntries.length };
   _ws = nextEntries;
   await queueStateSave();
   refreshUI();
-  return imported;
+  return { changed: true, count: nextEntries.length };
 }
 
 async function hydrateFromNoteIfNeeded(): Promise<void> {
@@ -439,8 +435,8 @@ async function hydrateFromNoteIfNeeded(): Promise<void> {
   const note = await ensureNote(false);
   if (!note) return;
 
-  const imported = await importWordsFromNote(note);
-  if (imported) {
+  const synced = await syncEntriesFromNote(note);
+  if (synced.changed) {
     await _doSyncNoteSafe();
   }
 }
@@ -678,10 +674,13 @@ async function _syncFromNote() {
     return;
   }
 
-  const imported = await importWordsFromNote(note);
-  if (imported) {
+  const synced = await syncEntriesFromNote(note);
+  if (synced.changed) {
     await _doSyncNoteSafe();
-    pwNotify(t(_uiLanguage, "notify.imported", { count: imported }), "success");
+    pwNotify(
+      t(_uiLanguage, "notify.imported", { count: synced.count }),
+      "success",
+    );
   } else {
     pwNotify(t(_uiLanguage, "notify.noNewWords"));
   }
@@ -692,6 +691,11 @@ async function addWord(
   ctx: string,
   src: string,
 ): Promise<VocabEntry | null> {
+  const existingNote = await ensureNote(false);
+  if (existingNote) {
+    await syncEntriesFromNote(existingNote);
+  }
+
   const cleaned = cleanWord(word);
   if (!cleaned) return null;
   if (await isDup(cleaned)) return null;
@@ -1104,7 +1108,15 @@ async function onStartup() {
     _ws = state.entries;
     storeNoteID(_noteID);
 
-    await hydrateFromNoteIfNeeded();
+    const note = await ensureNote(false);
+    if (note) {
+      const synced = await syncEntriesFromNote(note);
+      if (synced.changed) {
+        await _doSyncNoteSafe();
+      }
+    } else {
+      await hydrateFromNoteIfNeeded();
+    }
 
     pollReaders();
     setInterval(pollReaders, 3000);

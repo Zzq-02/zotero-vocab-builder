@@ -94,6 +94,25 @@ export function extractMutableEntries(entries: NoteEntry[]): VocabEntry[] {
   });
 }
 
+export function buildEntriesFromNoteEntries(
+  entries: NoteEntry[],
+): VocabEntry[] {
+  const rebuilt: VocabEntry[] = [];
+  const seen = new Set<string>();
+
+  for (const item of entries) {
+    const nextEntry = item.entry
+      ? { ...item.entry }
+      : createVocabEntry(item.word, { status: "completed" });
+
+    if (!nextEntry.word || seen.has(nextEntry.word)) continue;
+    seen.add(nextEntry.word);
+    rebuilt.push(nextEntry);
+  }
+
+  return rebuilt;
+}
+
 export function mergeNoteEntries(
   noteEntries: NoteEntry[],
   sessionEntries: VocabEntry[],
