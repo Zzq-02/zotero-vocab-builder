@@ -4,5 +4,12 @@
     "rootDir": "..",
     "types": ["mocha", "node"]
   },
-  "include": ["./note-state.test.ts", "../src/note-state.ts"]
+  "include": [
+    "./note-state.test.ts",
+    "./custom-api.test.ts",
+    "./exporters.test.ts",
+    "../src/note-state.ts",
+    "../src/custom-api.ts",
+    "../src/exporters.ts"
+  ]
 }

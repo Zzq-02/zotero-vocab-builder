@@ -9,6 +9,16 @@ declare namespace _ZoteroTypes {
     PluginPrefsMap: {
       "enable": boolean;
       "input": string;
+      "apiProvider": string;
+      "customApiUrl": string;
+      "customApiHeaders": string;
+      "customApiTransPath": string;
+      "customApiDefPath": string;
+      "customApiPosPath": string;
+      "customApiPhonePath": string;
+      "uiLanguage": string;
+      "exportFormat": string;
+      "exportScope": string;
     };
   }
 }

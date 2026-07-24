@@ -1,2 +1,12 @@
 pref("enable", true);
 pref("input", "This is input");
+pref("apiProvider", "youdao");
+pref("customApiUrl", "");
+pref("customApiHeaders", "{}");
+pref("customApiTransPath", "");
+pref("customApiDefPath", "");
+pref("customApiPosPath", "");
+pref("customApiPhonePath", "");
+pref("uiLanguage", "zh-CN");
+pref("exportFormat", "csv");
+pref("exportScope", "all");

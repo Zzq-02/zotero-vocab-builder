@@ -1,4 +1,14 @@
-import { config } from "../package.json";
+import { config, version } from "../package.json";
+import {
+  buildCustomAPIUrl,
+  extractCustomAPIFields,
+  parseCustomAPIConfig,
+} from "./custom-api";
+import {
+  buildExportBundle,
+  type ExportFormat,
+  type ExportScope,
+} from "./exporters";
 import {
   NOTE_SEARCH_MARKER,
   NOTE_TAG,
@@ -10,8 +20,21 @@ import {
   type VocabEntry,
 } from "./note-state";
 import { loadPersistedState, savePersistedState } from "./state-store";
+import {
+  applyDocumentLanguage,
+  DEFAULT_UI_LANGUAGE,
+  FEEDBACK_EMAIL,
+  getExportHint,
+  getWordCountLabel,
+  normalizeUILanguage,
+  t,
+  type UILanguage,
+} from "./ui-language";
+import { getPref, setPref } from "./utils/prefs";
 
 const NOTE_ID_PREF = `${config.prefsPrefix}.noteID`;
+const PREF_PANE_SRC = `chrome://${config.addonRef}/content/preferences.xhtml`;
+const PREF_PANE_SCRIPT = `chrome://${config.addonRef}/content/preferences-init.js`;
 
 let _ws: VocabEntry[] = [];
 let _noteID: number | null = readStoredNoteID();
@@ -19,8 +42,33 @@ let _syncBusy = false;
 let _syncPending = false;
 let _stateSaveChain: Promise<void> = Promise.resolve();
 let _apiName = "youdao";
+let _uiLanguage: UILanguage = DEFAULT_UI_LANGUAGE;
 let _readerSeen: Record<string, boolean> = {};
+let _prefPaneID: string | null = null;
 const _prefsDocs = new Set<any>();
+
+type APIProvider = "youdao" | "dictionary" | "custom";
+
+function normalizeAPIProvider(value: string): APIProvider {
+  return value === "dictionary" || value === "custom" ? value : "youdao";
+}
+
+function loadSettingsFromPrefs() {
+  _apiName = normalizeAPIProvider(getPref("apiProvider") || "youdao");
+  _uiLanguage = normalizeUILanguage(getPref("uiLanguage") || "zh-CN");
+}
+
+async function registerPrefsPane() {
+  if (_prefPaneID || !(Zotero as any).PreferencePanes?.register) return;
+
+  _prefPaneID = await Zotero.PreferencePanes.register({
+    pluginID: config.addonID,
+    id: `${config.addonRef}-preferences`,
+    src: PREF_PANE_SRC,
+    label: config.addonName,
+    scripts: [PREF_PANE_SCRIPT],
+  });
+}
 
 function readStoredNoteID(): number | null {
   try {
@@ -84,7 +132,7 @@ function createRenderableEntries(entries = _ws): NoteEntry[] {
 }
 
 function renderCurrentNoteHTML(): string {
-  return renderNoteHTML(createRenderableEntries());
+  return renderNoteHTML(createRenderableEntries(), new Date(), _uiLanguage);
 }
 
 async function isDup(word: string): Promise<boolean> {
@@ -92,12 +140,19 @@ async function isDup(word: string): Promise<boolean> {
 }
 
 function _setAPI(name: string) {
-  _apiName = name;
+  _apiName = normalizeAPIProvider(name);
+  setPref("apiProvider", _apiName);
 }
 
-async function _fetchAPI(url: string): Promise<string | null> {
+async function _fetchAPI(
+  url: string,
+  options: { headers?: Record<string, string> } = {},
+): Promise<string | null> {
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    const response = await fetch(url, {
+      headers: options.headers,
+      signal: AbortSignal.timeout(10000),
+    });
     return response.ok ? await response.text() : null;
   } catch (e) {
     try {
@@ -105,6 +160,9 @@ async function _fetchAPI(url: string): Promise<string | null> {
         const request = new XMLHttpRequest();
         request.open("GET", url, true);
         request.timeout = 12000;
+        for (const [key, value] of Object.entries(options.headers || {})) {
+          request.setRequestHeader(key, value);
+        }
         request.onload = () =>
           resolve(request.status === 200 ? request.responseText : null);
         request.onerror = () => resolve(null);
@@ -121,6 +179,33 @@ async function _translate(
   word: string,
 ): Promise<{ trans: string; def: string; pos: string; phone: string }> {
   const result = { trans: "", def: "", pos: "", phone: "" };
+
+  if (_apiName === "custom") {
+    const customConfig = parseCustomAPIConfig({
+      url: getPref("customApiUrl") || "",
+      headers: getPref("customApiHeaders") || "{}",
+      transPath: getPref("customApiTransPath") || "",
+      defPath: getPref("customApiDefPath") || "",
+      posPath: getPref("customApiPosPath") || "",
+      phonePath: getPref("customApiPhonePath") || "",
+    });
+
+    if (!customConfig.url) return result;
+
+    const raw = await _fetchAPI(buildCustomAPIUrl(customConfig.url, word), {
+      headers: customConfig.headers,
+    });
+    if (!raw) return result;
+
+    try {
+      return {
+        ...result,
+        ...extractCustomAPIFields(JSON.parse(raw), customConfig),
+      };
+    } catch (e) {
+      return result;
+    }
+  }
 
   if (_apiName === "dictionary") {
     const raw = await _fetchAPI(
@@ -249,7 +334,8 @@ async function _findExistingNote(): Promise<any | null> {
     } catch (e) {}
   }
 
-  const discoveredNote = (await _findNoteByTag()) || (await _findNoteByMarker());
+  const discoveredNote =
+    (await _findNoteByTag()) || (await _findNoteByMarker());
   if (!storedNote && discoveredNote?.isNote?.()) {
     rememberNote(discoveredNote);
     return discoveredNote;
@@ -346,22 +432,28 @@ function currentWordCount(): number {
 }
 
 function refreshMenus() {
-  const vocabLabel = `Vocabulary (${currentWordCount()})`;
-  const apiLabel = `API: ${_apiName}`;
+  const vocabLabel = t(_uiLanguage, "menu.vocab", {
+    count: currentWordCount(),
+  });
+  const quickAddLabel = t(_uiLanguage, "menu.quickAdd");
 
   for (const win of Zotero.getMainWindows()) {
     try {
       const vocabItem = win.document.getElementById("vb-menu-vocab");
       if (vocabItem) vocabItem.setAttribute("label", vocabLabel);
-
-      const apiItem = win.document.getElementById("vb-menu-api");
-      if (apiItem) apiItem.setAttribute("label", apiLabel);
+      const addItem = win.document.getElementById("vb-menu-add");
+      if (addItem) addItem.setAttribute("label", quickAddLabel);
     } catch (e) {}
   }
 }
 
 function refreshPrefsCounts() {
-  const countLabel = `${currentWordCount()} words`;
+  const completed = _ws.filter((entry) => entry.status === "completed").length;
+  const countLabel = getWordCountLabel(
+    _uiLanguage,
+    currentWordCount(),
+    completed,
+  );
 
   for (const doc of [..._prefsDocs]) {
     try {
@@ -378,9 +470,142 @@ function refreshPrefsCounts() {
   }
 }
 
+function bindEventOnce(
+  element: any,
+  key: string,
+  eventName: string,
+  listener: EventListener,
+) {
+  if (!element) return;
+
+  const marker = `vbBound${key}`;
+  if (element[marker]) return;
+
+  element.addEventListener(eventName, listener);
+  element[marker] = true;
+}
+
 function refreshUI() {
+  refreshPrefsLanguage();
   refreshMenus();
   refreshPrefsCounts();
+}
+
+function setInputValue(doc: Document, id: string, value: string) {
+  const element = doc.getElementById(id) as any;
+  if (element) element.value = value;
+}
+
+function getInputValue(doc: Document, id: string): string {
+  const element = doc.getElementById(id) as any;
+  return element?.value?.toString() || "";
+}
+
+function toggleCustomAPISection(doc: Document) {
+  const section = doc.getElementById(
+    "vb-custom-api-section",
+  ) as HTMLElement | null;
+  if (!section) return;
+  section.style.display = _apiName === "custom" ? "block" : "none";
+}
+
+function updateExportHint(doc: Document) {
+  const hint = doc.getElementById("vb-export-hint");
+  if (!hint) return;
+
+  const format = getInputValue(doc, "vb-export-format") as ExportFormat;
+  hint.textContent = getExportHint(_uiLanguage, format || "csv");
+}
+
+function copyToClipboard(text: string) {
+  const helper = (Components as any).classes[
+    "@mozilla.org/widget/clipboardhelper;1"
+  ].getService(Components.interfaces.nsIClipboardHelper) as any;
+  helper.copyString(text);
+}
+
+async function showSaveDialog(
+  win: any,
+  title: string,
+  bundle: ReturnType<typeof buildExportBundle>,
+): Promise<string | null> {
+  const picker = (Components as any).classes[
+    "@mozilla.org/filepicker;1"
+  ].createInstance(Components.interfaces.nsIFilePicker) as any;
+  picker.init(
+    win.browsingContext,
+    title,
+    Components.interfaces.nsIFilePicker.modeSave,
+  );
+  picker.defaultString = bundle.defaultFileName;
+  picker.defaultExtension = bundle.extension;
+  picker.appendFilter(bundle.filterLabel, `*.${bundle.extension}`);
+  picker.appendFilters(Components.interfaces.nsIFilePicker.filterAll);
+
+  const result = await new Promise<number>((resolve) => {
+    picker.open(resolve);
+  });
+
+  if (
+    result !== Components.interfaces.nsIFilePicker.returnOK &&
+    result !== Components.interfaces.nsIFilePicker.returnReplace
+  ) {
+    return null;
+  }
+
+  return picker.file?.path || null;
+}
+
+async function exportVocabulary(
+  win: any,
+  format: ExportFormat,
+  scope: ExportScope,
+) {
+  if (!_ws.length) {
+    pwNotify(t(_uiLanguage, "notify.noExport"));
+    return;
+  }
+
+  const bundle = buildExportBundle(format, scope, _ws);
+  const exportPath = await showSaveDialog(
+    win,
+    t(_uiLanguage, "dialog.exportTitle"),
+    bundle,
+  );
+  if (!exportPath) return;
+
+  await IOUtils.writeUTF8(exportPath, bundle.content);
+  pwNotify(
+    t(_uiLanguage, "notify.exported", {
+      extension: bundle.extension.toUpperCase(),
+    }),
+  );
+}
+
+function bindTextPref(
+  doc: Document,
+  id: string,
+  prefKey:
+    | "customApiUrl"
+    | "customApiHeaders"
+    | "customApiTransPath"
+    | "customApiDefPath"
+    | "customApiPosPath"
+    | "customApiPhonePath"
+    | "exportFormat"
+    | "exportScope",
+) {
+  const element = doc.getElementById(id) as any;
+  if (!element) return;
+
+  element.value = String(getPref(prefKey) || "");
+  const save = () => {
+    setPref(prefKey, element.value);
+    if (id === "vb-export-format") updateExportHint(doc);
+  };
+
+  element.addEventListener("change", save);
+  element.addEventListener("input", save);
 }
 
 async function _doSyncNoteSafe(): Promise<void> {
@@ -426,16 +651,16 @@ async function _doSyncNote(): Promise<void> {
 async function _syncFromNote() {
   const note = await ensureNote(false);
   if (!note) {
-    pwNotify("No vocabulary yet. Add a word first.");
+    pwNotify(t(_uiLanguage, "notify.noVocabulary"));
     return;
   }
 
   const imported = await importWordsFromNote(note);
   if (imported) {
     await _doSyncNoteSafe();
-    pwNotify(`Imported ${imported} words from note.`);
+    pwNotify(t(_uiLanguage, "notify.imported", { count: imported }));
   } else {
-    pwNotify("No new words found in note.");
+    pwNotify(t(_uiLanguage, "notify.noNewWords"));
   }
 }
 
@@ -476,7 +701,7 @@ async function _backgroundSync(entry: VocabEntry, cleaned: string) {
 
       if (entry.status === "failed") {
         entry.tries = Math.max(1, entry.tries || 0);
-        pwNotify("Translation failed for: " + cleaned);
+        pwNotify(t(_uiLanguage, "notify.translationFailed", { word: cleaned }));
       } else if (result.trans) {
         pwNotify(`${cleaned} -> ${result.trans}`);
       } else if (result.def) {
@@ -484,13 +709,17 @@ async function _backgroundSync(entry: VocabEntry, cleaned: string) {
       }
     } else {
       entry.status = "pending";
-      pwNotify("Offline. Will retry later: " + cleaned);
+      pwNotify(t(_uiLanguage, "notify.offlineRetry", { word: cleaned }));
     }
 
     await queueStateSave();
     await _doSyncNoteSafe();
   } catch (err) {
-    pwNotify("Error: " + ((err as any)?.message || err));
+    pwNotify(
+      t(_uiLanguage, "notify.error", {
+        message: (err as any)?.message || err,
+      }),
+    );
     Zotero.debug("VocabBuilder: bg sync: " + err);
   }
 }
@@ -516,7 +745,46 @@ function _retryPending() {
     retried++;
   }
 
-  if (retried > 0) pwNotify(`Retrying ${retried} pending words`);
+  if (retried > 0) {
+    pwNotify(t(_uiLanguage, "notify.retrying", { count: retried }));
+  }
+}
+
+function getDocLocaleVars(doc: Document) {
+  const help = doc.getElementById("vb-pref-help");
+  return {
+    name: help?.getAttribute("data-build-name") || config.addonName,
+    version: help?.getAttribute("data-build-version") || version,
+    time: help?.getAttribute("data-build-time") || "",
+  };
+}
+
+function refreshPrefsLanguage() {
+  for (const doc of [..._prefsDocs]) {
+    try {
+      if (!doc.defaultView || doc.defaultView.closed) {
+        _prefsDocs.delete(doc);
+        continue;
+      }
+
+      applyDocumentLanguage(doc, _uiLanguage, getDocLocaleVars(doc));
+      const emailBox = doc.getElementById("vb-feedback-email");
+      if (emailBox) {
+        emailBox.textContent = FEEDBACK_EMAIL;
+      }
+      toggleCustomAPISection(doc);
+      updateExportHint(doc);
+    } catch (e) {
+      _prefsDocs.delete(doc);
+    }
+  }
+}
+
+async function toggleUILanguage() {
+  _uiLanguage = _uiLanguage === "zh-CN" ? "en-US" : "zh-CN";
+  setPref("uiLanguage", _uiLanguage);
+  refreshUI();
+  await _doSyncNoteSafe();
 }
 
 async function onPrefsEvent(type: string, data: any) {
@@ -525,14 +793,13 @@ async function onPrefsEvent(type: string, data: any) {
   try {
     const doc = data.window.document;
     _prefsDocs.add(doc);
-    refreshPrefsCounts();
+    loadSettingsFromPrefs();
+    refreshUI();
 
     const openBtn = doc.getElementById("vb-open-note");
-    if (openBtn) {
-      openBtn.addEventListener("command", () => {
-        void _openVocabNote();
-      });
-    }
+    bindEventOnce(openBtn, "OpenNote", "click", () => {
+      void _openVocabNote();
+    });
 
     const input = doc.getElementById("vb-quick-input") as any;
     const addBtn = doc.getElementById("vb-quick-add") as any;
@@ -544,10 +811,10 @@ async function onPrefsEvent(type: string, data: any) {
         addWord(word, "", "")
           .then((entry) => {
             if (entry) {
-              pwNotify("Added: " + entry.word);
+              pwNotify(t(_uiLanguage, "notify.added", { word: entry.word }));
               refreshPrefsCounts();
             } else {
-              pwNotify("Duplicate or invalid word.");
+              pwNotify(t(_uiLanguage, "notify.duplicateInvalid"));
             }
           })
           .catch((e) => {
@@ -555,8 +822,8 @@ async function onPrefsEvent(type: string, data: any) {
           });
       };
 
-      addBtn.addEventListener("command", doAdd);
-      input.addEventListener("keydown", (e: any) => {
+      bindEventOnce(addBtn, "QuickAdd", "click", doAdd);
+      bindEventOnce(input, "QuickAddEnter", "keydown", (e: any) => {
         if (e.key === "Enter") doAdd();
       });
     }
@@ -564,18 +831,39 @@ async function onPrefsEvent(type: string, data: any) {
     const select = doc.getElementById("vb-api-select") as any;
     if (select) {
       select.value = _apiName;
-      select.addEventListener("command", () => {
+      bindEventOnce(select, "APISelect", "change", () => {
         _setAPI(select.value);
+        toggleCustomAPISection(doc);
         refreshUI();
       });
     }
 
+    bindTextPref(doc, "vb-custom-api-url", "customApiUrl");
+    bindTextPref(doc, "vb-custom-api-headers", "customApiHeaders");
+    bindTextPref(doc, "vb-custom-api-trans", "customApiTransPath");
+    bindTextPref(doc, "vb-custom-api-def", "customApiDefPath");
+    bindTextPref(doc, "vb-custom-api-pos", "customApiPosPath");
+    bindTextPref(doc, "vb-custom-api-phone", "customApiPhonePath");
+    bindTextPref(doc, "vb-export-format", "exportFormat");
+    bindTextPref(doc, "vb-export-scope", "exportScope");
+
     const syncBtn = doc.getElementById("vb-sync");
-    if (syncBtn) {
-      syncBtn.addEventListener("command", () => {
-        void _syncFromNote();
-      });
-    }
+    bindEventOnce(syncBtn, "Sync", "click", () => {
+      void _syncFromNote();
+    });
+
+    const exportBtn = doc.getElementById("vb-export-btn");
+    bindEventOnce(exportBtn, "Export", "click", () => {
+      const format = getInputValue(doc, "vb-export-format") as ExportFormat;
+      const scope = getInputValue(doc, "vb-export-scope") as ExportScope;
+      void exportVocabulary(data.window, format || "csv", scope || "all");
+    });
+
+    const feedbackCopyBtn = doc.getElementById("vb-feedback-copy");
+    bindEventOnce(feedbackCopyBtn, "FeedbackCopy", "click", () => {
+      copyToClipboard(FEEDBACK_EMAIL);
+      pwNotify(t(_uiLanguage, "notify.feedbackEmailCopied"));
+    });
   } catch (e) {
     Zotero.debug("VocabBuilder: prefs: " + e);
   }
@@ -601,17 +889,16 @@ function addMenu(win: any) {
     pop.appendChild(openItem);
 
     const addItem = doc.createXULElement("menuitem");
-    addItem.setAttribute("label", "+ Quick Add Word");
     addItem.setAttribute("id", "vb-menu-add");
     addItem.addEventListener("command", () => {
-      const word = win.prompt("Enter word:", "");
+      const word = win.prompt(t(_uiLanguage, "menu.enterWord"), "");
       if (word?.trim()) {
         addWord(word.trim(), "", "")
           .then((entry) => {
             if (entry) {
-              pwNotify("Added: " + entry.word);
+              pwNotify(t(_uiLanguage, "notify.added", { word: entry.word }));
             } else {
-              pwNotify("Duplicate or invalid word.");
+              pwNotify(t(_uiLanguage, "notify.duplicateInvalid"));
             }
           })
           .catch((e) => {
@@ -620,14 +907,6 @@ function addMenu(win: any) {
       }
     });
     pop.appendChild(addItem);
-
-    const apiItem = doc.createXULElement("menuitem");
-    apiItem.setAttribute("id", "vb-menu-api");
-    apiItem.addEventListener("command", () => {
-      _setAPI(_apiName === "youdao" ? "dictionary" : "youdao");
-      refreshUI();
-    });
-    pop.appendChild(apiItem);
 
     refreshMenus();
   } catch (e) {
@@ -646,13 +925,13 @@ async function _openVocabNote() {
     }
   }
 
-  pwNotify("No vocabulary yet. Add a word first.");
+  pwNotify(t(_uiLanguage, "notify.noVocabulary"));
 }
 
 function getReaderSelection(reader: any): string {
   try {
-    const annotation = (reader._internalReader as any)?._lastView?._selectionPopup
-      ?.annotation;
+    const annotation = (reader._internalReader as any)?._lastView
+      ?._selectionPopup?.annotation;
     if (annotation?.text) return annotation.text.trim();
   } catch (e) {}
 
@@ -665,8 +944,9 @@ function getReaderSelection(reader: any): string {
   } catch (e) {}
 
   try {
-    const selection =
-      (reader._internalReader as any)?._primaryView?._iframeWindow?.getSelection();
+    const selection = (
+      reader._internalReader as any
+    )?._primaryView?._iframeWindow?.getSelection();
     if (selection) {
       const text = selection.toString().trim();
       if (text) return text;
@@ -712,9 +992,9 @@ async function handleAltA(e: any, text: string) {
 
   const entry = await addWord(word, selectedText, "");
   if (entry) {
-    pwNotify("Added: " + entry.word);
+    pwNotify(t(_uiLanguage, "notify.added", { word: entry.word }));
   } else {
-    pwNotify("Duplicate: " + word);
+    pwNotify(t(_uiLanguage, "notify.duplicate", { word }));
   }
 }
 
@@ -732,9 +1012,13 @@ function pollReaders() {
     const readers = (Zotero.Reader as any)._readers;
     if (!readers) return;
 
-    const list: any[] = Array.isArray(readers) ? readers : Object.values(readers);
+    const list: any[] = Array.isArray(readers)
+      ? readers
+      : Object.values(readers);
     for (const entry of list) {
-      const reader = entry?.tabID ? Zotero.Reader.getByTabID(entry.tabID) : entry;
+      const reader = entry?.tabID
+        ? Zotero.Reader.getByTabID(entry.tabID)
+        : entry;
       if (!reader || _readerSeen[reader.tabID]) continue;
 
       const iframeWindow = reader._iframeWindow;
@@ -785,6 +1069,8 @@ async function onStartup() {
       Zotero.uiReadyPromise,
     ]);
 
+    await registerPrefsPane();
+    loadSettingsFromPrefs();
     const state = await loadPersistedState();
     if (state.noteID) _noteID = state.noteID;
     _ws = state.entries;
@@ -802,7 +1088,9 @@ async function onStartup() {
     refreshUI();
 
     if (
-      _ws.some((entry) => entry.status === "pending" || entry.status === "failed") &&
+      _ws.some(
+        (entry) => entry.status === "pending" || entry.status === "failed",
+      ) &&
       (typeof navigator === "undefined" || navigator.onLine)
     ) {
       setTimeout(_retryPending, 3000);
@@ -828,8 +1116,27 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow) {
   refreshUI();
 }
 
+async function reloadStateFromDisk() {
+  try {
+    loadSettingsFromPrefs();
+    const state = await loadPersistedState();
+    _noteID = state.noteID;
+    _ws = state.entries;
+    storeNoteID(_noteID);
+    refreshUI();
+  } catch (e) {
+    Zotero.debug("VocabBuilder: reload state: " + e);
+  }
+}
+
 function onShutdown() {
   _prefsDocs.clear();
+  if (_prefPaneID) {
+    try {
+      Zotero.PreferencePanes.unregister(_prefPaneID);
+    } catch (e) {}
+    _prefPaneID = null;
+  }
   addon.data.alive = false;
   delete (Zotero as any)[config.addonInstance];
 }
@@ -841,5 +1148,6 @@ export default {
   onMainWindowUnload: function () {},
   onNotify: function () {},
   onPrefsEvent,
+  reloadStateFromDisk,
   onShortcuts: function () {},
 };

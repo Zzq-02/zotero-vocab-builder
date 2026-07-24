@@ -1,3 +1,5 @@
+import { DEFAULT_UI_LANGUAGE, type UILanguage, t } from "./ui-language";
+
 export type VocabStatus = "pending" | "completed" | "failed";
 
 export interface VocabEntry {
@@ -22,7 +24,6 @@ export interface NoteEntry {
 
 export const NOTE_TAG = "vocab-builder";
 export const NOTE_SEARCH_MARKER = "Vocabulary List";
-export const NOTE_HEADING = "Vocabulary List";
 
 export function cleanWord(text: string): string {
   if (!text) return "";
@@ -71,7 +72,9 @@ export function parseNoteHTML(html: string): NoteEntry[] {
     if (!word || seen.has(word)) continue;
 
     seen.add(word);
-    entries.push(structured ? { word, rawHTML, entry: structured } : { word, rawHTML });
+    entries.push(
+      structured ? { word, rawHTML, entry: structured } : { word, rawHTML },
+    );
   }
 
   return entries;
@@ -122,7 +125,11 @@ export function mergeNoteEntries(
   return merged;
 }
 
-export function renderNoteHTML(entries: NoteEntry[], updatedAt = new Date()): string {
+export function renderNoteHTML(
+  entries: NoteEntry[],
+  updatedAt = new Date(),
+  language: UILanguage = DEFAULT_UI_LANGUAGE,
+): string {
   const items = entries
     .map((item) => {
       if (item.entry) return renderStructuredEntry(item.entry);
@@ -130,13 +137,16 @@ export function renderNoteHTML(entries: NoteEntry[], updatedAt = new Date()): st
     })
     .join("");
 
-  const body = items || `<li><i>No words yet.</i></li>`;
+  const body =
+    items || `<li><i>${escapeHtml(t(language, "note.empty"))}</i></li>`;
   const dateLabel = updatedAt.toLocaleDateString();
 
   return [
     `<div class="zotero-note znv1" data-vocab-builder="1">`,
-    `<h1>${NOTE_HEADING}</h1>`,
-    `<p><i>Total: ${entries.length} words | Updated: ${dateLabel}</i></p>`,
+    `<h1>${escapeHtml(t(language, "note.heading"))}</h1>`,
+    `<p><i>${escapeHtml(
+      t(language, "note.summary", { total: entries.length, date: dateLabel }),
+    )}</i></p>`,
     `<hr><ul>`,
     body,
     `</ul></div>`,

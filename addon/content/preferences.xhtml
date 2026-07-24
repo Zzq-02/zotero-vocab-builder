@@ -1,37 +1,405 @@
 <linkset>
   <html:link rel="localization" href="__addonRef__-preferences.ftl" />
 </linkset>
-<groupbox
-  onload="Zotero.__addonInstance__.hooks.onPrefsEvent('load', { window })"
+<vbox
+  onload="
+    if (typeof VocabBuilderPreferences !== 'undefined') {
+      VocabBuilderPreferences.init();
+    } else if (window.VocabBuilderPreferences) {
+      window.VocabBuilderPreferences.init();
+    }
+  "
 >
-  <label><html:h2 data-l10n-id="pref-title"></html:h2></label>
+  <groupbox>
+    <label
+      ><html:h2 id="vb-pref-title" data-vb-i18n="pref.title"></html:h2
+    ></label>
 
-  <html:div style="display:flex;gap:8px;align-items:center;margin:8px 0;">
-    <html:button id="vb-open-note" style="min-width:180px;padding:6px 16px;cursor:pointer;">Open Vocabulary</html:button>
-    <html:span id="vb-word-count" style="color:#888;font-size:13px;">0 words</html:span>
-  </html:div>
+    <html:section style="margin: 10px 0 16px 0">
+      <html:div
+        style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap"
+      >
+        <html:button
+          id="vb-language-toggle"
+          onclick="VocabBuilderPreferences.toggleLanguage()"
+          style="padding: 4px 12px; cursor: pointer"
+          >中文 / English</html:button
+        >
+        <html:span
+          id="vb-language-status"
+          data-vb-i18n="language.status"
+          style="color: #666"
+        ></html:span>
+      </html:div>
+    </html:section>
 
-  <hbox align="center" style="margin:4px 0;">
-    <html:input type="text" id="vb-quick-input" style="flex:1;min-width:200px;" placeholder="Enter word..." />
-    <html:button id="vb-quick-add" style="margin-left:8px;padding:4px 12px;cursor:pointer;">+ Add</html:button>
-  </hbox>
+    <html:section style="margin: 10px 0 16px 0">
+      <html:h3
+        id="vb-about-title"
+        data-vb-i18n="about.title"
+        style="margin: 0 0 8px 0"
+      ></html:h3>
+      <html:p
+        data-vb-i18n="about.body1"
+        style="margin: 4px 0; color: #333; line-height: 1.55"
+      ></html:p>
+      <html:p
+        data-vb-i18n="about.body2"
+        style="margin: 4px 0; color: #666; line-height: 1.55"
+      ></html:p>
+    </html:section>
 
-  <hbox align="center" style="margin:8px 0;">
-    <html:label style="margin-right:8px;">Translate API:</html:label>
-    <html:select id="vb-api-select" style="min-width:140px;padding:2px 4px;">
-      <html:option value="youdao">YouDao (CN)</html:option>
-      <html:option value="dictionary">Free Dictionary (EN)</html:option>
-    </html:select>
-  </hbox>
+    <html:section style="margin: 10px 0 16px 0">
+      <html:h3 data-vb-i18n="vocab.title" style="margin: 0 0 8px 0"></html:h3>
+      <html:div
+        style="display: flex; gap: 8px; align-items: center; margin: 8px 0"
+      >
+        <html:button
+          id="vb-open-note"
+          onclick="VocabBuilderPreferences.openVocabNote()"
+          style="min-width: 180px; padding: 6px 16px; cursor: pointer"
+          data-vb-i18n="vocab.open"
+        ></html:button>
+        <html:span
+          id="vb-word-count"
+          style="color: #666; font-size: 13px"
+        ></html:span>
+      </html:div>
 
-  <hbox style="margin:8px 0;">
-    <html:button id="vb-sync" style="padding:4px 12px;cursor:pointer;">Sync from Note</html:button>
-  </hbox>
+      <hbox align="center" style="margin: 4px 0">
+        <html:input
+          type="text"
+          id="vb-quick-input"
+          style="flex: 1; min-width: 220px"
+          data-vb-i18n-placeholder="vocab.quickPlaceholder"
+        />
+        <html:button
+          id="vb-quick-add"
+          onclick="VocabBuilderPreferences.quickAddWord()"
+          style="margin-left: 8px; padding: 4px 12px; cursor: pointer"
+          data-vb-i18n="vocab.quickAdd"
+        ></html:button>
+      </hbox>
 
-</groupbox>
-<vbox>
-  <html:label
-    data-l10n-id="pref-help"
-    data-l10n-args='{"time": "__buildTime__","name": "__addonName__","version":"__buildVersion__"}'
-  ></html:label>
+      <hbox style="margin: 8px 0">
+        <html:button
+          id="vb-sync"
+          onclick="VocabBuilderPreferences.syncFromNote()"
+          style="padding: 4px 12px; cursor: pointer"
+          data-vb-i18n="vocab.sync"
+        ></html:button>
+      </hbox>
+    </html:section>
+
+    <html:section style="margin: 10px 0 16px 0">
+      <html:h3 data-vb-i18n="api.title" style="margin: 0 0 8px 0"></html:h3>
+      <hbox align="center" style="margin: 8px 0">
+        <html:label
+          data-vb-i18n="api.provider"
+          style="margin-right: 8px; min-width: 110px"
+        ></html:label>
+        <html:select
+          id="vb-api-select"
+          style="min-width: 220px; padding: 2px 4px"
+        >
+          <html:option
+            value="youdao"
+            data-vb-i18n="api.option.youdao"
+          ></html:option>
+          <html:option
+            value="dictionary"
+            data-vb-i18n="api.option.dictionary"
+          ></html:option>
+          <html:option
+            value="custom"
+            data-vb-i18n="api.option.custom"
+          ></html:option>
+        </html:select>
+      </hbox>
+
+      <html:div
+        id="vb-custom-api-section"
+        style="
+          display: none;
+          border: 1px solid #d9d9d9;
+          border-radius: 6px;
+          padding: 10px 12px;
+          margin-top: 8px;
+          background: #fafafa;
+        "
+      >
+        <html:div
+          data-vb-i18n-html="api.help.html"
+          style="margin: 0 0 8px 0; color: #666; font-size: 12px"
+        ></html:div>
+
+        <hbox align="center" style="margin: 6px 0">
+          <html:label
+            data-vb-i18n="api.requestUrl"
+            style="margin-right: 8px; min-width: 110px"
+          ></html:label>
+          <html:input
+            id="vb-custom-api-url"
+            type="text"
+            style="flex: 1; min-width: 320px"
+            placeholder="https://example.com/dict?q={word}"
+          />
+        </hbox>
+
+        <html:div style="margin: 6px 0">
+          <html:label
+            data-vb-i18n="api.headers"
+            style="display: block; margin-bottom: 4px"
+          ></html:label>
+          <html:textarea
+            id="vb-custom-api-headers"
+            style="width: 100%; min-height: 72px"
+            placeholder='{"Authorization":"Bearer YOUR_KEY"}'
+          ></html:textarea>
+        </html:div>
+
+        <hbox align="center" style="margin: 6px 0">
+          <html:label
+            data-vb-i18n="api.transPath"
+            style="margin-right: 8px; min-width: 110px"
+          ></html:label>
+          <html:input
+            id="vb-custom-api-trans"
+            type="text"
+            style="flex: 1"
+            placeholder="data.translation"
+          />
+        </hbox>
+
+        <hbox align="center" style="margin: 6px 0">
+          <html:label
+            data-vb-i18n="api.defPath"
+            style="margin-right: 8px; min-width: 110px"
+          ></html:label>
+          <html:input
+            id="vb-custom-api-def"
+            type="text"
+            style="flex: 1"
+            placeholder="data.definition"
+          />
+        </hbox>
+
+        <hbox align="center" style="margin: 6px 0">
+          <html:label
+            data-vb-i18n="api.posPath"
+            style="margin-right: 8px; min-width: 110px"
+          ></html:label>
+          <html:input
+            id="vb-custom-api-pos"
+            type="text"
+            style="flex: 1"
+            placeholder="data.pos"
+          />
+        </hbox>
+
+        <hbox align="center" style="margin: 6px 0">
+          <html:label
+            data-vb-i18n="api.phonePath"
+            style="margin-right: 8px; min-width: 110px"
+          ></html:label>
+          <html:input
+            id="vb-custom-api-phone"
+            type="text"
+            style="flex: 1"
+            placeholder="data.phonetic"
+          />
+        </hbox>
+      </html:div>
+    </html:section>
+
+    <html:section style="margin: 10px 0 16px 0">
+      <html:h3 data-vb-i18n="export.title" style="margin: 0 0 8px 0"></html:h3>
+      <hbox align="center" style="margin: 6px 0">
+        <html:label
+          data-vb-i18n="export.format"
+          style="margin-right: 8px; min-width: 110px"
+        ></html:label>
+        <html:select
+          id="vb-export-format"
+          style="min-width: 220px; padding: 2px 4px"
+        >
+          <html:option
+            value="csv"
+            data-vb-i18n="export.option.csv"
+          ></html:option>
+          <html:option
+            value="tsv"
+            data-vb-i18n="export.option.tsv"
+          ></html:option>
+          <html:option
+            value="json"
+            data-vb-i18n="export.option.json"
+          ></html:option>
+          <html:option
+            value="anki"
+            data-vb-i18n="export.option.anki"
+          ></html:option>
+          <html:option
+            value="quizlet"
+            data-vb-i18n="export.option.quizlet"
+          ></html:option>
+          <html:option
+            value="mochi"
+            data-vb-i18n="export.option.mochi"
+          ></html:option>
+        </html:select>
+      </hbox>
+
+      <hbox align="center" style="margin: 6px 0">
+        <html:label
+          data-vb-i18n="export.scope"
+          style="margin-right: 8px; min-width: 110px"
+        ></html:label>
+        <html:select
+          id="vb-export-scope"
+          style="min-width: 220px; padding: 2px 4px"
+        >
+          <html:option
+            value="all"
+            data-vb-i18n="export.scope.all"
+          ></html:option>
+          <html:option
+            value="completed"
+            data-vb-i18n="export.scope.completed"
+          ></html:option>
+        </html:select>
+      </hbox>
+
+      <html:div
+        id="vb-export-hint"
+        style="margin: 6px 0; color: #666; font-size: 12px"
+      ></html:div>
+
+      <hbox style="margin: 8px 0">
+        <html:button
+          id="vb-export-btn"
+          onclick="VocabBuilderPreferences.exportCurrent()"
+          style="padding: 4px 12px; cursor: pointer"
+          data-vb-i18n="export.button"
+        ></html:button>
+      </hbox>
+    </html:section>
+
+    <html:section style="margin: 10px 0 16px 0">
+      <html:h3
+        data-vb-i18n="feedback.title"
+        style="margin: 0 0 8px 0"
+      ></html:h3>
+
+      <html:p
+        data-vb-i18n="feedback.description"
+        style="margin: 4px 0 8px 0; color: #666; line-height: 1.55"
+      ></html:p>
+
+      <hbox align="center" style="margin: 6px 0">
+        <html:label
+          data-vb-i18n="feedback.emailLabel"
+          style="margin-right: 8px; min-width: 110px"
+        ></html:label>
+        <html:div
+          id="vb-feedback-email"
+          style="
+            flex: 1;
+            padding: 6px 10px;
+            border: 1px solid #d9d9d9;
+            border-radius: 6px;
+            background: #f7f7f7;
+            color: #333;
+          "
+          >2278464424@qq.com</html:div
+        >
+      </hbox>
+
+      <hbox style="margin: 8px 0; display: flex; gap: 8px">
+        <html:button
+          id="vb-feedback-copy"
+          onclick="VocabBuilderPreferences.copyFeedbackEmail()"
+          style="padding: 4px 12px; cursor: pointer"
+          data-vb-i18n="feedback.copyEmail"
+        ></html:button>
+      </hbox>
+    </html:section>
+
+    <html:section style="margin: 10px 0 8px 0">
+      <html:h3 data-vb-i18n="donate.title" style="margin: 0 0 8px 0"></html:h3>
+
+      <html:p
+        data-vb-i18n="donate.description"
+        style="margin: 4px 0 8px 0; color: #666; line-height: 1.55"
+      ></html:p>
+
+      <html:div
+        style="
+          display: flex;
+          align-items: flex-start;
+          gap: 16px;
+          margin: 8px 0 12px 0;
+        "
+      >
+        <html:img
+          src="chrome://__addonRef__/content/assets/donation-qr.jpg"
+          data-vb-i18n-alt="donate.qrAlt"
+          style="
+            width: 180px;
+            height: 180px;
+            object-fit: contain;
+            border: 1px solid #d9d9d9;
+            border-radius: 8px;
+            padding: 8px;
+            background: #fff;
+          "
+        />
+        <html:div style="color: #666; line-height: 1.55; max-width: 360px">
+          <html:strong
+            data-vb-i18n="donate.qrTitle"
+            style="color: #333"
+          ></html:strong>
+          <html:p
+            data-vb-i18n="donate.qrBody"
+            style="margin: 6px 0 0 0"
+          ></html:p>
+        </html:div>
+      </html:div>
+
+      <html:p
+        data-vb-i18n="donate.summary"
+        style="margin: 6px 0 0 0; color: #666; line-height: 1.55"
+      ></html:p>
+    </html:section>
+
+    <html:section style="margin: 10px 0 16px 0">
+      <html:h3 data-vb-i18n="manual.title" style="margin: 0 0 8px 0"></html:h3>
+      <html:ol
+        style="
+          margin: 6px 0 6px 22px;
+          padding: 0;
+          color: #333;
+          line-height: 1.55;
+        "
+      >
+        <html:li data-vb-i18n-html="manual.item1.html"></html:li>
+        <html:li data-vb-i18n-html="manual.item2.html"></html:li>
+        <html:li data-vb-i18n-html="manual.item3.html"></html:li>
+        <html:li data-vb-i18n-html="manual.item4.html"></html:li>
+        <html:li data-vb-i18n-html="manual.item5.html"></html:li>
+      </html:ol>
+      <html:p
+        data-vb-i18n="manual.footer"
+        style="margin: 6px 0 0 0; color: #666; line-height: 1.55"
+      ></html:p>
+    </html:section>
+  </groupbox>
+  <vbox>
+    <html:label
+      id="vb-pref-help"
+      data-build-time="__buildTime__"
+      data-build-name="__addonName__"
+      data-build-version="__buildVersion__"
+    ></html:label>
+  </vbox>
 </vbox>

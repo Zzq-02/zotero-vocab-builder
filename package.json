@@ -2,7 +2,7 @@
   "name": "zotero-vocab-builder",
   "type": "module",
   "version": "1.0.0",
-  "description": "Vocabulary Builder - Build vocabulary while reading literature",
+  "description": "Vocabulary Builder - 在 Zotero 阅读文献时快捷收集、翻译、同步和导出生词",
   "config": {
     "addonName": "Vocabulary Builder",
     "addonID": "vocab-builder@zotero.org",
@@ -12,13 +12,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/windingwind/zotero-plugin-template.git"
+    "url": "git+https://gitee.com/zzq_02_admin/zotero-vocab-builder.git"
   },
   "author": "VocabBuilder",
   "bugs": {
-    "url": "https://github.com/windingwind/zotero-plugin-template/issues"
+    "url": "https://gitee.com/zzq_02_admin/zotero-vocab-builder/issues"
   },
-  "homepage": "https://github.com/windingwind/zotero-plugin-template#readme",
+  "homepage": "https://gitee.com/zzq_02_admin/zotero-vocab-builder",
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "start": "zotero-plugin serve",
