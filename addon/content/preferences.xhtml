@@ -351,19 +351,29 @@
           margin: 8px 0 12px 0;
         "
       >
-        <html:img
-          src="chrome://__addonRef__/content/assets/donation-qr.jpg"
-          data-vb-i18n-alt="donate.qrAlt"
+        <html:button
+          onclick="VocabBuilderPreferences.openDonationQr()"
           style="
-            width: 180px;
-            height: 180px;
-            object-fit: contain;
-            border: 1px solid #d9d9d9;
-            border-radius: 8px;
-            padding: 8px;
-            background: #fff;
+            padding: 0;
+            border: none;
+            background: transparent;
+            cursor: zoom-in;
           "
-        />
+        >
+          <html:img
+            src="chrome://__addonRef__/content/assets/donation-qr.jpg"
+            data-vb-i18n-alt="donate.qrAlt"
+            style="
+              width: 220px;
+              height: 220px;
+              object-fit: contain;
+              border: 1px solid #d9d9d9;
+              border-radius: 10px;
+              padding: 10px;
+              background: #fff;
+            "
+          />
+        </html:button>
         <html:div style="color: #666; line-height: 1.55; max-width: 360px">
           <html:strong
             data-vb-i18n="donate.qrTitle"
@@ -380,6 +390,39 @@
         data-vb-i18n="donate.summary"
         style="margin: 6px 0 0 0; color: #666; line-height: 1.55"
       ></html:p>
+
+      <html:div
+        id="vb-donate-overlay"
+        onclick="VocabBuilderPreferences.closeDonationQr()"
+        style="
+          display: none;
+          position: fixed;
+          inset: 0;
+          z-index: 9999;
+          background: rgba(0, 0, 0, 0.72);
+          align-items: center;
+          justify-content: center;
+          padding: 24px;
+          box-sizing: border-box;
+          cursor: zoom-out;
+        "
+      >
+        <html:img
+          id="vb-donate-overlay-img"
+          src="chrome://__addonRef__/content/assets/donation-qr.jpg"
+          data-vb-i18n-alt="donate.qrAlt"
+          style="
+            width: min(76vw, 560px);
+            max-width: 100%;
+            max-height: 84vh;
+            object-fit: contain;
+            border-radius: 14px;
+            background: #fff;
+            padding: 14px;
+            box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+          "
+        />
+      </html:div>
     </html:section>
 
     <html:section style="margin: 10px 0 16px 0">

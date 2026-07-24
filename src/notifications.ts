@@ -13,8 +13,8 @@ function resolveIcon(tone: NotificationTone): string {
 }
 
 function resolvePrefix(tone: NotificationTone): string {
-  if (tone === "success") return "\u2713 ";
-  if (tone === "error") return "\u2717 ";
+  if (tone === "success") return "\u2705 ";
+  if (tone === "error") return "\u274C ";
   return "";
 }
 

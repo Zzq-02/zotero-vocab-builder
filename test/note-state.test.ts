@@ -141,14 +141,8 @@ describe("note-state", function () {
       "en-US",
     );
 
-    assert.include(
-      html,
-      `${String.fromCharCode(0x2713)} <strong>zeta</strong>`,
-    );
-    assert.include(
-      html,
-      `${String.fromCharCode(0x2717)} <strong>eta</strong>`,
-    );
+    assert.include(html, `\u2705 <strong>zeta</strong>`);
+    assert.include(html, `\u274c <strong>eta</strong>`);
     assert.include(html, "translation: done");
     assert.notInclude(html, "[OK]");
     assert.notInclude(html, "[ERR]");

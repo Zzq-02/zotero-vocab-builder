@@ -704,6 +704,14 @@ function copyToClipboard(text: string) {
   helper.copyString(text);
 }
 
+function setDonationOverlayVisible(visible: boolean) {
+  const overlay = getMaybePrefsDocument()?.getElementById(
+    "vb-donate-overlay",
+  ) as HTMLElement | null;
+  if (!overlay) return;
+  overlay.style.display = visible ? "flex" : "none";
+}
+
 async function showSaveDialog(
   title: string,
   bundle: ReturnType<typeof buildExportBundle>,
@@ -967,6 +975,12 @@ const prefsController = {
   copyFeedbackEmail() {
     copyToClipboard(FEEDBACK_EMAIL);
     notify(t(state.uiLanguage, "notify.feedbackEmailCopied"), "success");
+  },
+  openDonationQr() {
+    setDonationOverlayVisible(true);
+  },
+  closeDonationQr() {
+    setDonationOverlayVisible(false);
   },
 };
 

@@ -34,8 +34,8 @@ export const NOTE_SEARCH_MARKER = "Vocabulary List";
 
 const STATUS_SYMBOLS: Record<VocabStatus, string> = {
   pending: "\u2026",
-  completed: "\u2713",
-  failed: "\u2717",
+  completed: "\u2705",
+  failed: "\u274c",
 };
 
 const STABLE_NOTE_CREATED_AT = "1970-01-01T00:00:00.000Z";
@@ -354,7 +354,7 @@ function readMarkedWord(rawHTML: string): string {
 }
 
 function readFirstVisibleWord(rawHTML: string): string {
-  const text = readVisibleText(rawHTML).replace(/[\u2713\u2717\u2026]/g, " ");
+  const text = stripStatusSymbols(readVisibleText(rawHTML));
   const labelMatch = text.match(
     new RegExp(`(?:${visibleFieldLabels().map(escapeRegExp).join("|")})\\s*[:\uFF1A]`, "i"),
   );
@@ -386,7 +386,7 @@ function readVisibleText(rawHTML: string): string {
 
 function looksLikeRenderedEntry(text: string): boolean {
   return (
-    /[\u2713\u2717\u2026]/.test(text) ||
+    hasStatusSymbol(text) ||
     visibleFieldLabels().some((label) =>
       new RegExp(`${escapeRegExp(label)}\\s*[:\uFF1A]`, "i").test(text),
     )
@@ -423,6 +423,20 @@ function visibleFieldLabels(): string[] {
 
 function normalizePhone(value: string): string {
   return value.replace(/^\/+|\/+$/g, "").trim();
+}
+
+function stripStatusSymbols(text: string): string {
+  return [STATUS_SYMBOLS.completed, STATUS_SYMBOLS.failed, STATUS_SYMBOLS.pending]
+    .reduce((next, symbol) => next.split(symbol).join(" "), text)
+    .trim();
+}
+
+function hasStatusSymbol(text: string): boolean {
+  return [
+    STATUS_SYMBOLS.completed,
+    STATUS_SYMBOLS.failed,
+    STATUS_SYMBOLS.pending,
+  ].some((symbol) => text.includes(symbol));
 }
 
 function normalizeEncodedMarkup(rawHTML: string): string {
