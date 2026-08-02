@@ -1726,16 +1726,28 @@ function attachSelectionBubble(win: any, reader?: any) {
       const margin = 8;
 
       if (mouseAnchor) {
-        // 鼠标定位：气泡紧贴鼠标，优先右侧，右侧空间不足则放左侧
-        let left = mouseAnchor.x + gap;
-        if (left + bubbleWidth > win.innerWidth - margin) {
-          left = Math.max(margin, mouseAnchor.x - gap - bubbleWidth);
-        }
-        let top = mouseAnchor.y - bubbleHeight / 2;
-        top = Math.max(
+        // 鼠标定位：气泡中心与鼠标水平对齐（X 居中于鼠标），
+        // 垂直方向紧贴鼠标下方，下方空间不足则放上方
+        const left = Math.max(
           margin,
-          Math.min(top, win.innerHeight - bubbleHeight - margin),
+          Math.min(
+            mouseAnchor.x - bubbleWidth / 2,
+            win.innerWidth - bubbleWidth - margin,
+          ),
         );
+        let top = mouseAnchor.y + gap;
+        if (top + bubbleHeight > win.innerHeight - margin) {
+          top = mouseAnchor.y - gap - bubbleHeight;
+          if (top < margin) {
+            top = Math.max(
+              margin,
+              Math.min(
+                mouseAnchor.y,
+                win.innerHeight - bubbleHeight - margin,
+              ),
+            );
+          }
+        }
         bubbleEl.style.left = `${left}px`;
         bubbleEl.style.top = `${top}px`;
         bubbleEl.style.visibility = "visible";
