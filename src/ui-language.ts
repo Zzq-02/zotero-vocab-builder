@@ -29,7 +29,7 @@ const UI_TEXT: Record<UILanguage, Record<string, string>> = {
     "vocab.quickPlaceholder": "输入单词...",
     "vocab.quickAdd": "+ 添加",
     "vocab.sync": "从生词笔记导入",
-    "highlight.title": "高亮",
+    "highlight.title": "颜色设置",
     "highlight.jumpColor": "跳转高亮颜色：",
     "highlight.jumpPlaceholder": "留空使用 Zotero 默认颜色（如 #ffeb3b）",
     "highlight.hint": "点击生词笔记中的来源链接跳回 PDF 后，阅读器查找高亮的颜色。留空使用 Zotero 默认色。",
@@ -147,7 +147,7 @@ const UI_TEXT: Record<UILanguage, Record<string, string>> = {
     "vocab.quickPlaceholder": "Enter word...",
     "vocab.quickAdd": "+ Add",
     "vocab.sync": "Import From Vocabulary Note",
-    "highlight.title": "Highlight",
+    "highlight.title": "Color Settings",
     "highlight.jumpColor": "Jump highlight color:",
     "highlight.jumpPlaceholder": "Leave empty for Zotero default (e.g. #ffeb3b)",
     "highlight.hint":
