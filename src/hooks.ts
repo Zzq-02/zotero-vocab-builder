@@ -1536,97 +1536,13 @@ function findSourceAnchor(target: any): any | null {
   }
 }
 
-function findSpeakButton(target: any): any | null {
-  try {
-    const element =
-      target?.nodeType === 1 ? target : target?.parentElement || null;
-    return element?.closest?.(".vb-speak-btn") || null;
-  } catch (e) {
-    return null;
-  }
-}
-
-let _lastSpeak: { word: string; at: number } = { word: "", at: 0 };
-
-function speakWord(word: string, win?: any) {
-  if (!word) return;
-  const now = Date.now();
-  // 防 mousedown+click 双触发；窗口 500ms，避免误伤用户快速重听
-  if (_lastSpeak.word === word && now - _lastSpeak.at < 500) return;
-  _lastSpeak = { word, at: now };
-
-  // 候选窗口：笔记编辑器 iframe → 各阅读器 iframe（content 上下文）→ 主窗口
-  const candidates: any[] = [];
-  if (win) candidates.push(win);
-  try {
-    const readers = (Zotero.Reader as any)?._readers;
-    const list: any[] = Array.isArray(readers)
-      ? readers
-      : Object.values(readers || {});
-    for (const entry of list) {
-      const reader = entry?.tabID
-        ? Zotero.Reader.getByTabID(entry.tabID)
-        : entry;
-      if (reader?._iframeWindow) candidates.push(reader._iframeWindow);
-    }
-  } catch (e) {}
-  for (const mainWin of Zotero.getMainWindows()) {
-    candidates.push(mainWin);
-  }
-
-  for (const candidate of candidates) {
-    try {
-      const speech = candidate?.speechSynthesis;
-      const Utterance = candidate?.SpeechSynthesisUtterance;
-      if (!speech || !Utterance) continue;
-      const utterance = new Utterance(word);
-      utterance.lang = "en-US";
-      utterance.rate = 0.9;
-      speech.speak(utterance);
-      return;
-    } catch (e) {
-      Zotero.debug("VocabBuilder: speak: " + e);
-    }
-  }
-
-  pwNotify(t(_uiLanguage, "notify.speakUnavailable"), "error");
-}
-
-function bindNoteDocEvents(doc: any, win: any) {
+function bindNoteDocEvents(doc: any) {
   if (!doc || doc._vbSourceLinksAttached) return; // 幂等：两条绑定路径共用
   doc._vbSourceLinksAttached = true;
-
-  // mousedown 优先处理：在编辑器（ProseMirror / Better Notes 等）介入前
-  // 拦截喇叭按钮，避免点击事件被编辑器吞掉
-  doc.addEventListener(
-    "mousedown",
-    (event: any) => {
-      const speakButton = findSpeakButton(event.target);
-      if (!speakButton) return;
-      event.preventDefault();
-      event.stopPropagation();
-      speakWord(
-        String(speakButton.getAttribute("data-vb-speak") || ""),
-        win,
-      );
-    },
-    true,
-  );
 
   doc.addEventListener(
     "click",
     (event: any) => {
-      const speakButton = findSpeakButton(event.target);
-      if (speakButton) {
-        event.preventDefault();
-        event.stopPropagation();
-        speakWord(
-          String(speakButton.getAttribute("data-vb-speak") || ""),
-          win,
-        );
-        return;
-      }
-
       const anchor = findSourceAnchor(event.target);
       if (!anchor) return;
 
@@ -1684,9 +1600,9 @@ function scanForNoteDocs(win: any, depth = 0) {
     if (
       iframeDoc &&
       !iframeDoc._vbSourceLinksAttached &&
-      iframeDoc.querySelector(".vb-entry, .vb-source-link, .vb-speak-btn")
+      iframeDoc.querySelector(".vb-entry, .vb-source-link")
     ) {
-      bindNoteDocEvents(iframeDoc, iframeWin);
+      bindNoteDocEvents(iframeDoc);
     }
   }
 }
@@ -1701,11 +1617,11 @@ function attachNoteEditorLinks() {
     if (doc._vbSourceLinksAttached) continue;
 
     // 内容驱动：只有包含本插件元素的笔记文档才绑定事件
-    if (!doc.querySelector(".vb-entry, .vb-source-link, .vb-speak-btn")) {
+    if (!doc.querySelector(".vb-entry, .vb-source-link")) {
       continue;
     }
 
-    bindNoteDocEvents(doc, win);
+    bindNoteDocEvents(doc);
   }
 
   // 2) 通用 iframe 扫描：覆盖 Better Notes 等第三方编辑器

@@ -275,16 +275,13 @@ function renderStructuredEntry(
         ? STATUS_SYMBOLS.failed
         : STATUS_SYMBOLS.pending;
   const word = renderWordLabel(entry.word, entry.src);
-  const speakButton = renderSpeakButton(entry.word, language);
+  const phonetic = entry.phone
+    ? `<span class="vb-phone">/${escapeHtml(entry.phone)}/</span>`
+    : "";
   const fields = [
     renderVisibleField("translation", entry.trans, language),
     renderVisibleField("definition", entry.def, language),
     renderVisibleField("pos", entry.pos, language),
-    renderVisibleField(
-      "phonetic",
-      entry.phone ? `/${entry.phone}/` : "",
-      language,
-    ),
   ].join("");
   const ctx = entry.ctx
     ? `<br>${renderVisibleField("context", entry.ctx, language, false)}`
@@ -292,22 +289,8 @@ function renderStructuredEntry(
 
   return [
     `<li ${attrs.join(" ")}>`,
-    `${icon} ${word}${speakButton}${fields}${ctx}</li>`,
+    `${icon} ${word}${phonetic}${fields}${ctx}</li>`,
   ].join("");
-}
-
-function renderSpeakButton(word: string, language: UILanguage): string {
-  const title = escapeHtml(t(language, "note.speak"));
-  return [
-    `<button`,
-    `type="button"`,
-    `class="vb-speak-btn"`,
-    `data-vb-speak="${escapeHtml(word)}"`,
-    `title="${title}"`,
-    `aria-label="${title}"`,
-    `style="margin:0 2px 0 4px;padding:0 4px;border:none;background:transparent;cursor:pointer;font-size:inherit;vertical-align:baseline"`,
-    `>🔊</button>`,
-  ].join(" ");
 }
 
 function renderWordLabel(word: string, href: string): string {

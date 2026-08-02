@@ -11,7 +11,7 @@ Collect unfamiliar English words while reading in Zotero, and store them in a de
 - Auto-extract the full sentence containing the selected word as context, and save the source link for each word.
 - Jump back from the vocabulary note to the original selection position in the PDF.
 - Fill in translation, definition, part of speech, and phonetic data automatically.
-- Pronounce any word in the vocabulary note with one click (TTS).
+- Show the phonetic transcription right next to each word in the vocabulary note.
 - Cache translation results locally (offline dictionary): previously looked-up words show their meanings even when offline. The cache path is configurable in Settings.
 - Keep pending words when offline and retry translation later.
 - Add words in bulk (one per line) from the Settings pane.

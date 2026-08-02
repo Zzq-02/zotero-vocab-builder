@@ -268,22 +268,37 @@ describe("note-state", function () {
     assert.equal(rebuilt[1].status, "completed");
   });
 
-  it("renders a speak button for each structured entry", function () {
-    const entry = createVocabEntry("omega", { status: "completed" });
+  it("renders the phonetic right after the word", function () {
+    const entry = createVocabEntry("omega", {
+      status: "completed",
+      phone: "ˈoʊməɡə",
+    });
     const rendered = renderNoteHTML(
       [{ word: "omega", entry }],
       new Date("2026-07-23T00:00:00.000Z"),
       "en-US",
     );
 
-    assert.include(rendered, `class="vb-speak-btn"`);
-    assert.include(rendered, `data-vb-speak="omega"`);
-    assert.include(rendered, "🔊");
+    assert.include(rendered, `<span class="vb-phone">/ˈoʊməɡə/</span>`);
+    // 音标紧跟单词之后（替换原发音按钮的位置）
+    const wordIndex = rendered.indexOf("<strong>omega</strong>");
+    const phoneIndex = rendered.indexOf(`class="vb-phone"`);
+    assert.isAbove(phoneIndex, wordIndex);
+    assert.isBelow(phoneIndex, wordIndex + 80);
+    // 字段列表不再重复显示音标
+    assert.notInclude(rendered, "phonetic:");
   });
 
-  it("renders a speak button title in the current language", function () {
+  it("does not render a phonetic span when phone is empty", function () {
     const entry = createVocabEntry("omega", { status: "pending" });
-    const zh = renderNoteHTML([{ word: "omega", entry }], new Date(), "zh-CN");
-    assert.include(zh, `title="播放发音"`);
+    const rendered = renderNoteHTML(
+      [{ word: "omega", entry }],
+      new Date(),
+      "en-US",
+    );
+
+    assert.notInclude(rendered, `class="vb-phone"`);
+    assert.notInclude(rendered, "🔊");
+    assert.notInclude(rendered, "vb-speak-btn");
   });
 });
