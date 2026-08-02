@@ -1643,6 +1643,8 @@ function attachSelectionBubble(win: any, reader?: any) {
 
   let bubble: HTMLElement | null = null;
   let showTimer: ReturnType<typeof setTimeout> | null = null;
+  // mouseup 瞬间缓存的选区矩形（避免 120ms 后选区被干扰导致定位偏移）
+  let cachedAnchorRect: DOMRect | null = null;
 
   const hideBubble = () => {
     if (bubble) bubble.style.display = "none";
@@ -1704,18 +1706,22 @@ function attachSelectionBubble(win: any, reader?: any) {
 
   const showBubble = () => {
     try {
-      const selection = win.getSelection();
-      if (!selection || selection.rangeCount === 0) return hideBubble();
-      const text = selection.toString().trim();
-      if (!cleanWord(text)) return hideBubble();
-
-      const range = selection.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-      if (!rect || (rect.width === 0 && rect.height === 0)) {
-        return hideBubble();
+      // 优先使用 mouseup 瞬间缓存的选区矩形（此时选区最新鲜、最准确）；
+      // 缺失时（如键盘选中）再从当前选区获取
+      let rect = cachedAnchorRect;
+      if (!rect) {
+        const selection = win.getSelection();
+        if (!selection || selection.rangeCount === 0) return hideBubble();
+        const text = selection.toString().trim();
+        if (!cleanWord(text)) return hideBubble();
+        const range = selection.getRangeAt(0);
+        const r = range.getBoundingClientRect();
+        if (!r || (r.width === 0 && r.height === 0)) return hideBubble();
+        rect = r;
       }
       // 锚点 = 选区矩形本身（精确覆盖选中的文字，不依赖任何 span 结构）
 
+      const anchorRect: DOMRect = rect as DOMRect;
       const bubbleEl = ensureBubble();
       bubbleEl.style.display = "block";
       // 先测量实际尺寸（同一同步块内完成，不会闪烁），再计算位置
@@ -1729,20 +1735,20 @@ function attachSelectionBubble(win: any, reader?: any) {
       const left = Math.max(
         margin,
         Math.min(
-          rect.left + rect.width / 2 - bubbleWidth / 2,
+          anchorRect.left + anchorRect.width / 2 - bubbleWidth / 2,
           win.innerWidth - bubbleWidth - margin,
         ),
       );
 
       // 垂直：优先显示在选区正上方，上方空间不足则显示在正下方
-      let top = rect.top - bubbleHeight - gap;
+      let top = anchorRect.top - bubbleHeight - gap;
       if (top < margin) {
-        top = rect.bottom + gap;
+        top = anchorRect.bottom + gap;
         if (top + bubbleHeight > win.innerHeight - margin) {
           top = Math.max(
             margin,
             Math.min(
-              rect.top,
+              anchorRect.top,
               win.innerHeight - bubbleHeight - margin,
             ),
           );
@@ -1752,6 +1758,18 @@ function attachSelectionBubble(win: any, reader?: any) {
       bubbleEl.style.left = `${left}px`;
       bubbleEl.style.top = `${top}px`;
       bubbleEl.style.visibility = "visible";
+
+      // 调试日志：输出选区矩形与气泡最终位置，便于定位偏差
+      Zotero.debug(
+        "VocabBuilder: bubble rect=" +
+          JSON.stringify({
+            left: Math.round(anchorRect.left),
+            top: Math.round(anchorRect.top),
+            width: Math.round(anchorRect.width),
+            height: Math.round(anchorRect.height),
+          }) +
+          ` bubble=${bubbleWidth}x${bubbleHeight} at=${Math.round(left)},${Math.round(top)} viewport=${Math.round(win.innerWidth)}x${Math.round(win.innerHeight)}`,
+      );
     } catch (e) {
       hideBubble();
     }
@@ -1762,8 +1780,24 @@ function attachSelectionBubble(win: any, reader?: any) {
     showTimer = setTimeout(showBubble, 120);
   };
 
-  win.addEventListener("mouseup", scheduleShow);
-  win.addEventListener("keyup", scheduleShow);
+  // mouseup 瞬间立即缓存选区矩形（此时选区最新鲜；
+  // 120ms 后 Zotero 选中弹窗 / PDF.js 重绘可能干扰选区）
+  win.addEventListener("mouseup", (e: any) => {
+    try {
+      const selection = win.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const r = selection.getRangeAt(0).getBoundingClientRect();
+        if (r && r.width > 0 && r.height > 0) {
+          cachedAnchorRect = r;
+        }
+      }
+    } catch (ex) {}
+    scheduleShow();
+  });
+  win.addEventListener("keyup", () => {
+    cachedAnchorRect = null;
+    scheduleShow();
+  });
   win.addEventListener("scroll", hideBubble, true);
   doc.addEventListener("scroll", hideBubble, true);
   doc.addEventListener(
