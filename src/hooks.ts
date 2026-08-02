@@ -1975,10 +1975,12 @@ function highlightKnownWordsInReader(reader: any): void {
     if (getPref("highlightReadWordsEnabled") === false) return;
 
     const words = getKnownWordsForAttachment(reader);
-    // 两个候选窗口都扫描：Zotero 7 的 PDF 文本层实际渲染在
-    // _primaryView 的 iframe 中（reader._iframeWindow 可能只是容器）
+    // 候选窗口覆盖 Zotero 7/8/9：
+    // - Zotero 7/8：_iframeWindow 与 _internalReader._primaryView._iframeWindow
+    // - Zotero 9：移除了 _internalReader，改为 _primaryView._iframeWindow
     const candidateWindows = [
       reader?._iframeWindow,
+      reader?._primaryView?._iframeWindow,
       (reader?._internalReader as any)?._primaryView?._iframeWindow,
     ];
 
