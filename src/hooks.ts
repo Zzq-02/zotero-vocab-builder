@@ -1974,37 +1974,44 @@ function highlightKnownWordsInReader(reader: any): void {
   try {
     if (getPref("highlightReadWordsEnabled") === false) return;
 
-    const win = reader?._iframeWindow;
-    const doc = win?.document;
-    if (!doc) return;
-
     const words = getKnownWordsForAttachment(reader);
-    if (!words.length) return;
+    // 两个候选窗口都扫描：Zotero 7 的 PDF 文本层实际渲染在
+    // _primaryView 的 iframe 中（reader._iframeWindow 可能只是容器）
+    const candidateWindows = [
+      reader?._iframeWindow,
+      (reader?._internalReader as any)?._primaryView?._iframeWindow,
+    ];
 
-    // 高亮样式（每个文档注入一次）
-    if (!doc._vbHlStyleInjected) {
-      const style = doc.createElement("style");
-      style.textContent =
-        ".vb-hl-word{background-color:rgba(255,235,59,.45)!important;border-radius:2px}";
-      (doc.head || doc.documentElement).appendChild(style);
-      doc._vbHlStyleInjected = true;
-    }
+    for (const win of candidateWindows) {
+      if (!win) continue;
+      const doc = win.document;
+      if (!doc) continue;
 
-    const wordSet = new Set(words);
-    const spans = doc.querySelectorAll(
-      ".textLayer span, .textLayer div",
-    ) as NodeListOf<Element>;
-    let count = 0;
-    spans.forEach((span: Element) => {
-      if (span.classList.contains("vb-hl-word")) return;
-      const cleaned = cleanWord((span.textContent || "").trim());
-      if (cleaned && wordSet.has(cleaned)) {
-        span.classList.add("vb-hl-word");
-        count++;
+      // 高亮样式（每个文档注入一次）
+      if (!doc._vbHlStyleInjected) {
+        const style = doc.createElement("style");
+        style.textContent =
+          ".vb-hl-word{background-color:rgba(255,235,59,.45)!important;border-radius:2px}";
+        (doc.head || doc.documentElement).appendChild(style);
+        doc._vbHlStyleInjected = true;
       }
-    });
-    if (count > 0) {
-      Zotero.debug(`VocabBuilder: highlighted ${count} known words`);
+
+      const wordSet = new Set(words);
+      const spans = doc.querySelectorAll(
+        ".textLayer span, .textLayer div",
+      ) as NodeListOf<Element>;
+      let count = 0;
+      spans.forEach((span: Element) => {
+        if (span.classList.contains("vb-hl-word")) return;
+        const cleaned = cleanWord((span.textContent || "").trim());
+        if (cleaned && wordSet.has(cleaned)) {
+          span.classList.add("vb-hl-word");
+          count++;
+        }
+      });
+      Zotero.debug(
+        `VocabBuilder: highlight scan itemKey=${String(reader?._item?.key || "")} words=${words.length} textSpans=${spans.length} matched=${count}`,
+      );
     }
   } catch (e) {}
 }
