@@ -1502,15 +1502,30 @@ async function openSourceLink(src: string, query: string): Promise<void> {
   const reader = await waitForReaderByItemID(parsed.itemID);
   if (!reader) return;
 
-  if (parsed.position) return;
+  // 无论是否携带精确位置，都尽量在定位后高亮选中词
+  if (parsed.position) {
+    try {
+      await reader.navigate({ position: parsed.position });
+    } catch (e) {}
+    // 等待渲染完成后再执行查找高亮
+    await sleep(400);
+    await highlightReaderQuery(reader, query);
+    return;
+  }
 
   if (parsed.annotationID) {
     const annotations = (reader?._internalReader as any)?._state?.annotations || [];
-    const annotation = annotations.find((item: any) => item?.id === parsed.annotationID);
+    const annotation = annotations.find(
+      (item: any) =>
+        String(item?.id) === parsed.annotationID ||
+        String(item?.key) === parsed.annotationID,
+    );
     const position = clonePosition(annotation?.position);
     if (position) {
       try {
         await reader.navigate({ position });
+        await sleep(400);
+        await highlightReaderQuery(reader, query);
         return;
       } catch (e) {}
     }
@@ -1536,33 +1551,59 @@ function findSourceAnchor(target: any): any | null {
   }
 }
 
+let _lastSourceClick: { src: string; at: number } = { src: "", at: 0 };
+
+function handleSourceAnchor(anchor: any, event?: any) {
+  const src = String(
+    anchor.getAttribute("data-vb-source") ||
+      anchor.getAttribute("href") ||
+      "",
+  ).trim();
+  const query = String(
+    anchor.getAttribute("data-vb-query") ||
+      anchor.getAttribute("data-vb-word") ||
+      anchor.querySelector?.("strong")?.textContent ||
+      anchor.textContent ||
+      "",
+  ).trim();
+  if (!src) return false;
+
+  // mousedown 与 click 双监听去重（mousedown 的 stopPropagation 不影响 click 派发）
+  const now = Date.now();
+  if (_lastSourceClick.src === src && now - _lastSourceClick.at < 800) {
+    // 仍要阻止默认行为，否则 click 会放行 zotero:// URI 由系统再次处理
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    return true;
+  }
+  _lastSourceClick = { src, at: now };
+
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  void openSourceLink(src, query);
+  return true;
+}
+
 function bindNoteDocEvents(doc: any) {
   if (!doc || doc._vbSourceLinksAttached) return; // 幂等：两条绑定路径共用
   doc._vbSourceLinksAttached = true;
+
+  // mousedown 优先处理：在编辑器（ProseMirror / Better Notes 等）介入前
+  // 拦截来源链接，避免 click 被编辑器吞掉
+  doc.addEventListener(
+    "mousedown",
+    (event: any) => {
+      const anchor = findSourceAnchor(event.target);
+      if (anchor) handleSourceAnchor(anchor, event);
+    },
+    true,
+  );
 
   doc.addEventListener(
     "click",
     (event: any) => {
       const anchor = findSourceAnchor(event.target);
-      if (!anchor) return;
-
-      const src = String(
-        anchor.getAttribute("data-vb-source") ||
-          anchor.getAttribute("href") ||
-          "",
-      ).trim();
-      const query = String(
-        anchor.getAttribute("data-vb-query") ||
-          anchor.getAttribute("data-vb-word") ||
-          anchor.querySelector?.("strong")?.textContent ||
-          anchor.textContent ||
-          "",
-      ).trim();
-      if (!src) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-      void openSourceLink(src, query);
+      if (anchor) handleSourceAnchor(anchor, event);
     },
     true,
   );
@@ -1702,7 +1743,20 @@ function attachSelectionBubble(win: any, reader?: any) {
       if (showTimer) clearTimeout(showTimer);
       const clickText = pendingText || getReaderSelection(reader);
       hideBubble();
-      if (clickText) {
+      if (!clickText) return;
+
+      // 与快捷键路径完全一致：在点击时刻从阅读器 DOM 重新提取例句
+      //（气泡的 mousedown 已阻止选区被清除，此时选区通常仍然有效）；
+      // 仅当选区确实丢失时才回退到显示时刻缓存的句子。
+      const liveText = getReaderSelection(reader);
+      if (liveText) {
+        void handleAltA(
+          { preventDefault() {}, stopPropagation() {} },
+          liveText,
+          reader,
+          win,
+        );
+      } else {
         void handleAltA(
           { preventDefault() {}, stopPropagation() {} },
           clickText,

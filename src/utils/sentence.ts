@@ -146,44 +146,73 @@ export function selectionToSentence(win: Window): string {
       startOffset = 0;
     }
 
-    // 向上找块级容器（限制深度与文本长度，避免抓到整页）
-    let block = startContainer.parentElement as Element | null;
-    if (!block) return selectedText;
-    for (let i = 0; i < 6 && block.parentElement; i++) {
-      const tag = block.tagName.toLowerCase();
-      const textLength = (block.textContent || "").length;
-      if (
-        [
-          "p",
-          "div",
-          "li",
-          "h1",
-          "h2",
-          "h3",
-          "h4",
-          "h5",
-          "h6",
-          "section",
-          "article",
-          "blockquote",
-          "figcaption",
-          "td",
-          "th",
-        ].includes(tag) &&
-        textLength <= 600
-      ) {
-        break;
-      }
-      block = block.parentElement;
+    // 提取包含锚点的局部上下文（锚点附近兄弟节点序列），
+    // 避免 PDF.js 整页文本按 DOM 拼接时出现单词顺序错乱
+    const local = collectLocalContext(startContainer, startOffset);
+    if (local && local.text.length > selectedText.length) {
+      const sentence = extractSentenceAt(local.text, local.offset);
+      if (sentence) return sentence;
     }
 
-    const fullText = block.textContent || "";
-    const absOffset = textOffsetInElement(block, startContainer, startOffset);
-    if (absOffset < 0) return selectedText;
-
-    return extractSentenceAt(fullText, absOffset) || selectedText;
+    return selectedText;
   } catch (e) {
     return "";
+  }
+}
+
+/**
+ * 收集包含锚点文本节点的局部文本与锚点偏移：
+ * 1) 锚点所在叶子元素文本足够长时直接使用（普通 HTML，如 <p>）；
+ * 2) 否则在其父级收集锚点元素前后最多 MAX_SIBLINGS 个兄弟元素
+ *    （PDF.js 每词一个 span 的文本层），按 DOM 顺序拼接。
+ */
+function collectLocalContext(
+  node: Node,
+  startOffset: number,
+): { text: string; offset: number } | null {
+  try {
+    const leaf =
+      node.nodeType === Node.TEXT_NODE
+        ? node.parentElement
+        : (node as Element);
+    if (leaf) {
+      const leafText = leaf.textContent || "";
+      if (leafText.trim().length >= 20) {
+        const offset = textOffsetInElement(leaf, node, startOffset);
+        if (offset >= 0) return { text: leafText, offset };
+      }
+    }
+
+    const container = leaf?.parentElement;
+    if (!container) return null;
+
+    // 文本节点直接位于容器内（无包裹元素）时，用容器全文
+    if (node.nodeType === Node.TEXT_NODE && !leaf) {
+      const text = container.textContent || "";
+      if (text.trim().length >= 20) {
+        const offset = textOffsetInElement(container, node, startOffset);
+        if (offset >= 0) return { text, offset };
+      }
+    }
+
+    if (!leaf) return null;
+    const children = Array.from(container.children);
+    const leafIndex = children.indexOf(leaf);
+    if (leafIndex < 0) return null;
+
+    const MAX_SIBLINGS = 60;
+    const start = Math.max(0, leafIndex - MAX_SIBLINGS);
+    const end = Math.min(children.length, leafIndex + MAX_SIBLINGS + 1);
+    const parts: string[] = [];
+    let offset = 0;
+    for (let i = start; i < end; i++) {
+      const text = children[i].textContent || "";
+      parts.push(text);
+      if (i < leafIndex) offset += text.length + 1;
+    }
+    return { text: parts.join(" "), offset: offset + startOffset };
+  } catch (e) {
+    return null;
   }
 }
 
