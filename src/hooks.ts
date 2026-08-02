@@ -1761,7 +1761,8 @@ function attachSelectionBubble(win: any, reader?: any) {
           );
           top = mouseAnchor.y - bubbleHeight - gap - dblAboveOffset;
           if (top < margin) {
-            top = mouseAnchor.y + gap;
+            // 下方兜底：间距与上方一致
+            top = mouseAnchor.y + gap + dblAboveOffset;
           }
           top = Math.max(
             margin,
