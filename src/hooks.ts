@@ -1643,8 +1643,12 @@ function attachSelectionBubble(win: any, reader?: any) {
 
   let bubble: HTMLElement | null = null;
   let showTimer: ReturnType<typeof setTimeout> | null = null;
+  // mousedown 起点（用于判断拖动与方向）
+  let mouseDownPos: { x: number; y: number } | null = null;
   // mouseup 瞬间缓存的鼠标位置（气泡锚点；键盘选中时为 null 走选区定位）
   let mouseAnchor: { x: number; y: number } | null = null;
+  // 拖动方向（从左往右选词 → 气泡放右侧；从右往左 → 左侧）
+  let dragDirection: "left" | "right" | null = null;
   // mouseup 瞬间缓存的选区矩形（键盘选中回退用）
   let cachedAnchorRect: DOMRect | null = null;
 
@@ -1725,10 +1729,20 @@ function attachSelectionBubble(win: any, reader?: any) {
       let anchorLabel: string;
 
       if (mouseAnchor) {
-        // 水平：默认气泡左端贴鼠标右侧；右侧空间不足时右端贴鼠标左侧
-        left = mouseAnchor.x + gap;
-        if (left + bubbleWidth > win.innerWidth - margin) {
-          left = Math.max(margin, mouseAnchor.x - gap - bubbleWidth);
+        // 按拖动方向放置：从左往右选词 → 鼠标右侧；从右往左 → 鼠标左侧；
+        // 对应侧空间不足时翻到另一侧
+        if (dragDirection === "left") {
+          left = mouseAnchor.x - gap - bubbleWidth;
+          if (left < margin) {
+            left = mouseAnchor.x + gap;
+          }
+          left = Math.min(left, win.innerWidth - bubbleWidth - margin);
+          left = Math.max(margin, left);
+        } else {
+          left = mouseAnchor.x + gap;
+          if (left + bubbleWidth > win.innerWidth - margin) {
+            left = Math.max(margin, mouseAnchor.x - gap - bubbleWidth);
+          }
         }
         // 垂直：气泡中心与鼠标同一水平线
         top = Math.max(
@@ -1738,7 +1752,7 @@ function attachSelectionBubble(win: any, reader?: any) {
             win.innerHeight - bubbleHeight - margin,
           ),
         );
-        anchorLabel = `mouse=${Math.round(mouseAnchor.x)},${Math.round(mouseAnchor.y)}`;
+        anchorLabel = `mouse=${Math.round(mouseAnchor.x)},${Math.round(mouseAnchor.y)} dir=${dragDirection}`;
       } else {
         // 键盘选中回退：用缓存的选区矩形（缺失时实时获取）
         let rect = cachedAnchorRect;
@@ -1796,10 +1810,25 @@ function attachSelectionBubble(win: any, reader?: any) {
     showTimer = setTimeout(showBubble, 120);
   };
 
-  // mouseup 瞬间立即缓存鼠标位置与选区矩形（此时选区最新鲜；
-  // 120ms 后其他插件的选中弹窗 / PDF.js 重绘可能干扰选区）
+  // mousedown 记录起点：用于判断是否真正拖动选择了单词，以及拖动方向
+  win.addEventListener("mousedown", (e: any) => {
+    mouseDownPos = { x: e.clientX, y: e.clientY };
+    mouseAnchor = null;
+  });
+
+  // mouseup 瞬间：判定是否选词（拖动或双击），记录鼠标位置、方向与选区矩形
   win.addEventListener("mouseup", (e: any) => {
+    const down = mouseDownPos;
+    mouseDownPos = null;
+
+    const dragged = down
+      ? Math.hypot(e.clientX - down.x, e.clientY - down.y) >= 3
+      : true;
+    // 单击（未拖动且不是双击）：不弹气泡
+    if (!dragged && e.detail < 2) return;
+
     mouseAnchor = { x: e.clientX, y: e.clientY };
+    dragDirection = down && e.clientX < down.x ? "left" : "right";
     try {
       const selection = win.getSelection();
       if (selection && selection.rangeCount > 0) {
@@ -1813,6 +1842,7 @@ function attachSelectionBubble(win: any, reader?: any) {
   });
   win.addEventListener("keyup", () => {
     mouseAnchor = null;
+    dragDirection = null;
     cachedAnchorRect = null;
     scheduleShow();
   });
