@@ -2012,7 +2012,13 @@ function highlightKnownWordsInReader(reader: any): void {
       spans.forEach((span: Element) => {
         if (span.classList.contains("vb-hl-word")) return;
         const cleaned = cleanWord((span.textContent || "").trim());
-        if (cleaned && wordSet.has(cleaned)) {
+        if (!cleaned) return;
+        // 优先整 span 精确匹配；span 含多个词时按词分词匹配
+        //（Zotero 9 的文本层 span 粒度可能是文本项而非单词）
+        if (
+          wordSet.has(cleaned) ||
+          cleaned.split(" ").some((token) => wordSet.has(token))
+        ) {
           span.classList.add("vb-hl-word");
           count++;
         }
