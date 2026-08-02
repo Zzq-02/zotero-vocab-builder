@@ -1611,8 +1611,6 @@ function attachSelectionBubble(win: any, reader?: any) {
 
   let bubble: HTMLElement | null = null;
   let showTimer: ReturnType<typeof setTimeout> | null = null;
-  let pendingText = "";
-  let pendingSentence = "";
 
   const hideBubble = () => {
     if (bubble) bubble.style.display = "none";
@@ -1648,28 +1646,23 @@ function attachSelectionBubble(win: any, reader?: any) {
       e.preventDefault();
       e.stopPropagation();
       if (showTimer) clearTimeout(showTimer);
-      const clickText = pendingText || getReaderSelection(reader);
       hideBubble();
-      if (!clickText) return;
 
-      // 与快捷键路径完全一致：在点击时刻从阅读器 DOM 重新提取例句
-      //（气泡的 mousedown 已阻止选区被清除，此时选区通常仍然有效）；
-      // 仅当选区确实丢失时才回退到显示时刻缓存的句子。
-      const liveText = getReaderSelection(reader);
-      if (liveText) {
+      // 与快捷键 keydown 处理逐字一致：读取选区 → handleAltA，
+      // 由 handleAltA 内部统一提取例句（不再预提取、不再传缓存句子）
+      let text = "";
+      if (reader) text = getReaderSelection(reader);
+      if (!text) {
+        try {
+          text = win.getSelection()?.toString()?.trim() || "";
+        } catch (ex) {}
+      }
+      if (text) {
         void handleAltA(
           { preventDefault() {}, stopPropagation() {} },
-          liveText,
+          text,
           reader,
           win,
-        );
-      } else {
-        void handleAltA(
-          { preventDefault() {}, stopPropagation() {} },
-          clickText,
-          reader,
-          win,
-          pendingSentence || undefined,
         );
       }
     });
@@ -1691,8 +1684,6 @@ function attachSelectionBubble(win: any, reader?: any) {
       }
 
       const bubbleEl = ensureBubble();
-      pendingText = text;
-      pendingSentence = selectionToSentence(win) || text;
       bubbleEl.style.display = "block";
       // 先测量实际尺寸（同一同步块内完成，不会闪烁），再计算位置
       bubbleEl.style.visibility = "hidden";
