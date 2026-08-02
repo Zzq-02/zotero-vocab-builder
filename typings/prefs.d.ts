@@ -21,6 +21,8 @@ declare namespace _ZoteroTypes {
       "quickAddShortcut": string;
       "selectionBubbleEnabled": boolean;
       "highlightReadWordsEnabled": boolean;
+      "highlightWordColor": string;
+      "jumpHighlightColor": string;
       "translationCachePath": string;
       "translationCacheEnabled": boolean;
       "exportFormat": string;

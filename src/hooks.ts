@@ -1966,6 +1966,50 @@ function getKnownWordsForAttachment(reader: any): string[] {
   return words;
 }
 
+/** 校验并规范化颜色值（仅允许 CSS 颜色字符，防止注入） */
+function sanitizeColor(value: string): string {
+  const v = String(value || "").trim();
+  if (!v) return "";
+  return /^[#a-zA-Z0-9(),.\s%]+$/.test(v) ? v : "";
+}
+
+/**
+ * 在 span 的文本节点内精确高亮目标词：把该词拆分到 <mark class="vb-hl-word">，
+ * 只给词本身加背景色，不影响 span 其余文本。
+ */
+function highlightTokenInSpan(span: Element, token: string): boolean {
+  try {
+    const doc = span.ownerDocument;
+    if (!doc || !token) return false;
+
+    const walker = doc.createTreeWalker(span, NodeFilter.SHOW_TEXT);
+    const nodes: Text[] = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+
+    const needle = token.toLowerCase();
+    for (const node of nodes) {
+      const text = node.textContent || "";
+      const idx = text.toLowerCase().indexOf(needle);
+      if (idx < 0) continue;
+
+      const mark = doc.createElement("mark");
+      mark.className = "vb-hl-word";
+      mark.textContent = text.slice(idx, idx + token.length);
+      const before = doc.createTextNode(text.slice(0, idx));
+      const after = doc.createTextNode(text.slice(idx + token.length));
+      const parent = node.parentNode;
+      if (!parent) continue;
+      parent.replaceChild(after, node);
+      parent.insertBefore(mark, after);
+      parent.insertBefore(before, mark);
+      return true;
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
+
 /**
  * 生词高亮回看：在 PDF 文本层中找到已收录的生词并加高亮。
  * 幂等（已高亮的 span 跳过）；翻页后新渲染的 span 会在下次轮询补高亮。
@@ -1994,11 +2038,18 @@ function highlightKnownWordsInReader(reader: any): void {
       const doc = win.document;
       if (!doc) continue;
 
-      // 高亮样式（每个文档注入一次）
+      // 高亮样式（每个文档注入一次）：生词色与跳转查找色均可配置
       if (!doc._vbHlStyleInjected) {
+        const wordColor =
+          sanitizeColor(getPref("highlightWordColor")) ||
+          "rgba(255,235,59,.45)";
+        const jumpColor = sanitizeColor(getPref("jumpHighlightColor"));
+        let css = `.vb-hl-word{background-color:${wordColor}!important;border-radius:2px}`;
+        if (jumpColor) {
+          css += `.textLayer .highlight,.textLayer .highlight.selected{background-color:${jumpColor}!important}`;
+        }
         const style = doc.createElement("style");
-        style.textContent =
-          ".vb-hl-word{background-color:rgba(255,235,59,.45)!important;border-radius:2px}";
+        style.textContent = css;
         (doc.head || doc.documentElement).appendChild(style);
         doc._vbHlStyleInjected = true;
       }
@@ -2010,18 +2061,24 @@ function highlightKnownWordsInReader(reader: any): void {
       totalSpans += spans.length;
       let count = 0;
       spans.forEach((span: Element) => {
-        if (span.classList.contains("vb-hl-word")) return;
+        // 已精确高亮过的 span（或其内部 mark）跳过
+        if (
+          span.classList.contains("vb-hl-word") ||
+          span.querySelector(".vb-hl-word")
+        ) {
+          return;
+        }
         const cleaned = cleanWord((span.textContent || "").trim());
         if (!cleaned) return;
-        // 优先整 span 精确匹配；span 含多个词时按词分词匹配
+        // 整 span 精确匹配优先；span 含多个词时按词分词匹配
         //（Zotero 9 的文本层 span 粒度可能是文本项而非单词）
-        if (
-          wordSet.has(cleaned) ||
-          cleaned.split(" ").some((token) => wordSet.has(token))
-        ) {
-          span.classList.add("vb-hl-word");
-          count++;
-        }
+        const tokens = cleaned.split(" ");
+        const matchedToken = wordSet.has(cleaned)
+          ? cleaned
+          : tokens.find((token) => wordSet.has(token));
+        if (!matchedToken) return;
+        // 只高亮单词本身（拆分文本节点，给词加背景，不动其余文本）
+        if (highlightTokenInSpan(span, matchedToken)) count++;
       });
       totalMatched += count;
       Zotero.debug(

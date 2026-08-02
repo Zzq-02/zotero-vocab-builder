@@ -53,7 +53,9 @@ const DEFAULT_TEXT_PREFS: Partial<
     | "customApiExamplePath"
     | "exportFormat"
     | "exportScope"
-    | "translationCachePath",
+    | "translationCachePath"
+    | "highlightWordColor"
+    | "jumpHighlightColor",
     string
   >
 > = {
@@ -742,7 +744,9 @@ function bindTextPref(
     | "customApiExamplePath"
     | "exportFormat"
     | "exportScope"
-    | "translationCachePath",
+    | "translationCachePath"
+    | "highlightWordColor"
+    | "jumpHighlightColor",
 ) {
   const element = getPrefsDocument().getElementById(id) as any;
   if (!element) return;
@@ -1094,6 +1098,8 @@ function bindControls() {
 
   bindTextPref("vb-export-format", "exportFormat");
   bindTextPref("vb-export-scope", "exportScope");
+  bindTextPref("vb-highlight-word-color", "highlightWordColor");
+  bindTextPref("vb-highlight-jump-color", "jumpHighlightColor");
 }
 
 async function ensureLoaded(forceRefresh = false) {
