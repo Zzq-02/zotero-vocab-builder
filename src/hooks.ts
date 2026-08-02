@@ -38,6 +38,8 @@ import {
   formatShortcutLabel,
   matchesShortcut,
 } from "./utils/shortcut";
+import { lookupTranslation, storeTranslation } from "./translation-cache";
+import { selectionToSentence } from "./utils/sentence";
 
 const NOTE_ID_PREF = `${config.prefsPrefix}.noteID`;
 const PREF_PANE_SRC = `chrome://${config.addonRef}/content/preferences.xhtml`;
@@ -217,7 +219,23 @@ async function _fetchAPI(
 async function _translate(
   word: string,
 ): Promise<{ trans: string; def: string; pos: string; phone: string }> {
+  // 先查本地翻译缓存（离线词库），命中则直接返回
+  const cached = await lookupTranslation(word);
+  if (cached) return cached;
+
   const result = { trans: "", def: "", pos: "", phone: "" };
+
+  const finish = async (finalResult: {
+    trans: string;
+    def: string;
+    pos: string;
+    phone: string;
+  }) => {
+    if (finalResult.trans || finalResult.def) {
+      void storeTranslation(word, finalResult);
+    }
+    return finalResult;
+  };
 
   if (_apiName === "custom") {
     const customConfig = parseCustomAPIConfig({
@@ -237,10 +255,10 @@ async function _translate(
     if (!raw) return result;
 
     try {
-      return {
+      return await finish({
         ...result,
         ...extractCustomAPIFields(JSON.parse(raw), customConfig),
-      };
+      });
     } catch (e) {
       return result;
     }
@@ -264,7 +282,7 @@ async function _translate(
         }
       } catch (e) {}
     }
-    return result;
+    return finish(result);
   }
 
   const raw = await _fetchAPI(
@@ -302,7 +320,7 @@ async function _translate(
     }
   }
 
-  return result;
+  return finish(result);
 }
 
 async function scoreNote(note: any): Promise<number> {
@@ -863,13 +881,28 @@ async function _backgroundSync(
         );
       }
     } else {
+      // 离线时先查本地翻译缓存，命中则直接完成
+      const cached = await lookupTranslation(cleaned);
       await noteSync;
       const latestNote = await ensureNote(false);
       if (latestNote && !(await noteStillHasWord(latestNote, cleaned))) return;
       const liveEntry = findLiveEntry(cleaned, targetId);
       if (!liveEntry) return;
-      liveEntry.status = "pending";
-      pwNotify(t(_uiLanguage, "notify.offlineRetry", { word: cleaned }));
+
+      if (cached) {
+        liveEntry.trans = cached.trans;
+        liveEntry.def = cached.def;
+        liveEntry.pos = cached.pos;
+        liveEntry.phone = cached.phone;
+        liveEntry.status = "completed";
+        pwNotify(
+          t(_uiLanguage, "notify.addedTranslated", { word: cleaned }),
+          "success",
+        );
+      } else {
+        liveEntry.status = "pending";
+        pwNotify(t(_uiLanguage, "notify.offlineRetry", { word: cleaned }));
+      }
     }
 
     await _doSyncNoteSafe();
@@ -1503,6 +1536,31 @@ function findSourceAnchor(target: any): any | null {
   }
 }
 
+function findSpeakButton(target: any): any | null {
+  try {
+    const element =
+      target?.nodeType === 1 ? target : target?.parentElement || null;
+    return element?.closest?.(".vb-speak-btn") || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function speakWord(word: string, win: any) {
+  try {
+    const speech = win?.speechSynthesis;
+    const Utterance = win?.SpeechSynthesisUtterance;
+    if (!speech || !Utterance || !word) return;
+
+    const utterance = new Utterance(word);
+    utterance.lang = "en-US";
+    utterance.rate = 0.9;
+    speech.speak(utterance);
+  } catch (e) {
+    Zotero.debug("VocabBuilder: speak: " + e);
+  }
+}
+
 function attachNoteEditorLinks() {
   const editors = ((Zotero.Notes as any)?._editorInstances || []) as any[];
   for (const editor of editors) {
@@ -1517,6 +1575,17 @@ function attachNoteEditorLinks() {
     doc.addEventListener(
       "click",
       (event: any) => {
+        const speakButton = findSpeakButton(event.target);
+        if (speakButton) {
+          event.preventDefault();
+          event.stopPropagation();
+          speakWord(
+            String(speakButton.getAttribute("data-vb-speak") || ""),
+            win,
+          );
+          return;
+        }
+
         const anchor = findSourceAnchor(event.target);
         if (!anchor) return;
 
@@ -1551,6 +1620,7 @@ function attachReaderKeys(win: any, reader?: any) {
 
   win.addEventListener("keydown", (e: any) => {
     if (matchesShortcut(e, _quickAddShortcut)) {
+      win._vbHideBubble?.();
       let text = "";
       if (reader) text = getReaderSelection(reader);
       if (!text) {
@@ -1558,12 +1628,118 @@ function attachReaderKeys(win: any, reader?: any) {
           text = win.getSelection()?.toString()?.trim() || "";
         } catch (ex) {}
       }
-      if (text) void handleAltA(e, text, reader);
+      if (text) void handleAltA(e, text, reader, win);
     }
   });
+
+  attachSelectionBubble(win, reader);
 }
 
-async function handleAltA(e: any, text: string, reader?: any) {
+/**
+ * 阅读器选中英文单词后，在选区上方显示“添加到生词表”气泡按钮。
+ * 点击即调用与快捷键相同的 handleAltA 链路（含例句提取）。
+ */
+function attachSelectionBubble(win: any, reader?: any) {
+  if (!win || win._vbBubbleAttached) return;
+  const doc = win.document;
+  if (!doc) return;
+  win._vbBubbleAttached = true;
+
+  let bubble: HTMLElement | null = null;
+  let showTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingText = "";
+
+  const hideBubble = () => {
+    if (bubble) bubble.style.display = "none";
+  };
+  win._vbHideBubble = hideBubble;
+
+  const ensureBubble = (): HTMLElement => {
+    if (bubble) return bubble;
+    const el = doc.createElement("div");
+    el.className = "vb-add-bubble";
+    el.style.cssText = [
+      "position:fixed",
+      "z-index:2147483647",
+      "display:none",
+      "padding:6px 12px",
+      "border-radius:16px",
+      "background:#0f766e",
+      "color:#fff",
+      "font-size:13px",
+      "font-family:system-ui,sans-serif",
+      "cursor:pointer",
+      "box-shadow:0 2px 8px rgba(0,0,0,.25)",
+      "user-select:none",
+      "white-space:nowrap",
+    ].join(";");
+    el.textContent = t(_uiLanguage, "bubble.add");
+    el.addEventListener("click", (e: any) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (showTimer) clearTimeout(showTimer);
+      const clickText = pendingText || getReaderSelection(reader);
+      hideBubble();
+      if (clickText) {
+        void handleAltA(
+          { preventDefault() {}, stopPropagation() {} },
+          clickText,
+          reader,
+          win,
+        );
+      }
+    });
+    doc.body.appendChild(el);
+    bubble = el;
+    return el;
+  };
+
+  const showBubble = () => {
+    try {
+      const selection = win.getSelection();
+      if (!selection || selection.rangeCount === 0) return hideBubble();
+      const text = selection.toString().trim();
+      if (!cleanWord(text)) return hideBubble();
+
+      const rect = selection.getRangeAt(0).getBoundingClientRect();
+      if (!rect || (rect.width === 0 && rect.height === 0)) {
+        return hideBubble();
+      }
+
+      const bubbleEl = ensureBubble();
+      pendingText = text;
+      bubbleEl.style.display = "block";
+      let top = rect.bottom + 8;
+      if (top + 36 > win.innerHeight) top = Math.max(8, rect.top - 36);
+      bubbleEl.style.left = `${Math.max(
+        8,
+        Math.min(rect.left, win.innerWidth - 150),
+      )}px`;
+      bubbleEl.style.top = `${top}px`;
+    } catch (e) {
+      hideBubble();
+    }
+  };
+
+  const scheduleShow = () => {
+    if (showTimer) clearTimeout(showTimer);
+    showTimer = setTimeout(showBubble, 200);
+  };
+
+  win.addEventListener("mouseup", scheduleShow);
+  win.addEventListener("keyup", scheduleShow);
+  win.addEventListener("scroll", hideBubble, true);
+  doc.addEventListener("scroll", hideBubble, true);
+  doc.addEventListener(
+    "click",
+    (e: any) => {
+      if (!e.target?.closest?.(".vb-add-bubble")) hideBubble();
+    },
+    true,
+  );
+}
+
+async function handleAltA(e: any, text: string, reader?: any, win?: any) {
   const selectedText = text.trim();
   if (!selectedText) return;
 
@@ -1573,8 +1749,10 @@ async function handleAltA(e: any, text: string, reader?: any) {
   const word = cleanWord(selectedText);
   if (!word) return;
 
+  // 优先从阅读器 DOM 提取包含选中词的完整例句，失败则回退到选区文本
+  const ctx = win ? selectionToSentence(win) || selectedText : selectedText;
   const source = captureReaderSourceContext(reader);
-  const entry = await addWord(word, selectedText, buildReaderSourceLink(source));
+  const entry = await addWord(word, ctx, buildReaderSourceLink(source));
   if (!entry) {
     pwNotify(t(_uiLanguage, "notify.duplicate", { word }), "error");
     return;

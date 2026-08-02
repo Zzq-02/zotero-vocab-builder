@@ -130,6 +130,20 @@
           data-vb-i18n="vocab.sync"
         ></html:button>
       </hbox>
+
+      <html:textarea
+        id="vb-batch-input"
+        style="width: 100%; min-height: 64px; margin-top: 8px"
+        data-vb-i18n-placeholder="vocab.batchPlaceholder"
+      ></html:textarea>
+      <hbox style="margin: 6px 0">
+        <html:button
+          id="vb-batch-add"
+          onclick="VocabBuilderPreferences.batchAddWords()"
+          style="padding: 4px 12px; cursor: pointer"
+          data-vb-i18n="vocab.batchAdd"
+        ></html:button>
+      </hbox>
     </html:section>
 
     <html:section style="margin: 10px 0 16px 0">
@@ -251,6 +265,26 @@
           />
         </hbox>
       </html:div>
+    </html:section>
+
+    <html:section style="margin: 10px 0 16px 0">
+      <html:h3 data-vb-i18n="cache.title" style="margin: 0 0 8px 0"></html:h3>
+      <hbox align="center" style="margin: 6px 0">
+        <html:label
+          data-vb-i18n="cache.path"
+          style="margin-right: 8px; min-width: 110px"
+        ></html:label>
+        <html:input
+          id="vb-cache-path"
+          type="text"
+          style="flex: 1"
+          data-vb-i18n-placeholder="cache.pathPlaceholder"
+        />
+      </hbox>
+      <html:div
+        data-vb-i18n="cache.hint"
+        style="margin: 6px 0; color: #666; font-size: 12px; line-height: 1.5"
+      ></html:div>
     </html:section>
 
     <html:section style="margin: 10px 0 16px 0">

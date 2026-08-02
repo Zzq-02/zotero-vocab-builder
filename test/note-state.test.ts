@@ -267,4 +267,23 @@ describe("note-state", function () {
     assert.equal(rebuilt[1].word, "sigma");
     assert.equal(rebuilt[1].status, "completed");
   });
+
+  it("renders a speak button for each structured entry", function () {
+    const entry = createVocabEntry("omega", { status: "completed" });
+    const rendered = renderNoteHTML(
+      [{ word: "omega", entry }],
+      new Date("2026-07-23T00:00:00.000Z"),
+      "en-US",
+    );
+
+    assert.include(rendered, `class="vb-speak-btn"`);
+    assert.include(rendered, `data-vb-speak="omega"`);
+    assert.include(rendered, "🔊");
+  });
+
+  it("renders a speak button title in the current language", function () {
+    const entry = createVocabEntry("omega", { status: "pending" });
+    const zh = renderNoteHTML([{ word: "omega", entry }], new Date(), "zh-CN");
+    assert.include(zh, `title="播放发音"`);
+  });
 });

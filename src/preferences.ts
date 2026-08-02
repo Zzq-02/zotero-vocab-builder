@@ -51,13 +51,15 @@ const DEFAULT_TEXT_PREFS: Partial<
     | "customApiPosPath"
     | "customApiPhonePath"
     | "exportFormat"
-    | "exportScope",
+    | "exportScope"
+    | "translationCachePath",
     string
   >
 > = {
   customApiHeaders: "{}",
   exportFormat: "csv",
   exportScope: "all",
+  translationCachePath: "",
 };
 
 function getPrefsWindow(): any {
@@ -712,7 +714,8 @@ function bindTextPref(
     | "customApiPosPath"
     | "customApiPhonePath"
     | "exportFormat"
-    | "exportScope",
+    | "exportScope"
+    | "translationCachePath",
 ) {
   const element = getPrefsDocument().getElementById(id) as any;
   if (!element) return;
@@ -850,6 +853,33 @@ async function quickAddWord() {
   } else {
     notify(t(state.uiLanguage, "notify.duplicateInvalid"), "error");
   }
+}
+
+async function batchAddWords() {
+  await ensureLoaded(true);
+
+  const input = getPrefsDocument().getElementById("vb-batch-input") as any;
+  const raw = input?.value || "";
+  const words = raw
+    .split(/[\n,;，；]+/)
+    .map((item: string) => item.trim())
+    .filter(Boolean);
+  if (!words.length) return;
+
+  input.value = "";
+  let added = 0;
+  let skipped = 0;
+  for (const word of words) {
+    const entry = await addWord(word, "", "");
+    if (entry) added++;
+    else skipped++;
+  }
+
+  notify(
+    t(state.uiLanguage, "notify.batchAdded", { added, skipped }),
+    added > 0 ? "success" : "error",
+  );
+  await notifyMainAddon();
 }
 
 function getLocaleVars() {
@@ -1002,6 +1032,7 @@ function bindControls() {
   bindTextPref("vb-custom-api-def", "customApiDefPath");
   bindTextPref("vb-custom-api-pos", "customApiPosPath");
   bindTextPref("vb-custom-api-phone", "customApiPhonePath");
+  bindTextPref("vb-cache-path", "translationCachePath");
   bindTextPref("vb-export-format", "exportFormat");
   bindTextPref("vb-export-scope", "exportScope");
 }
@@ -1085,6 +1116,7 @@ const prefsController = {
   init,
   openVocabNote,
   quickAddWord,
+  batchAddWords,
   syncFromNote,
   toggleLanguage,
   exportVocabulary,
