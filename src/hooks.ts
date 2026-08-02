@@ -1643,8 +1643,6 @@ function attachSelectionBubble(win: any, reader?: any) {
 
   let bubble: HTMLElement | null = null;
   let showTimer: ReturnType<typeof setTimeout> | null = null;
-  // mouseup 时的鼠标位置（键盘选中时为 null，走选区定位）
-  let mouseAnchor: { x: number; y: number } | null = null;
 
   const hideBubble = () => {
     if (bubble) bubble.style.display = "none";
@@ -1722,45 +1720,21 @@ function attachSelectionBubble(win: any, reader?: any) {
       bubbleEl.style.visibility = "hidden";
       const bubbleWidth = bubbleEl.offsetWidth || 140;
       const bubbleHeight = bubbleEl.offsetHeight || 34;
-      const gap = 6;
       const margin = 8;
 
-      if (mouseAnchor) {
-        // 垂直：气泡中心与鼠标水平线对齐（紧贴鼠标高度）
-        let top = mouseAnchor.y - bubbleHeight / 2;
-        top = Math.max(
-          margin,
-          Math.min(top, win.innerHeight - bubbleHeight - margin),
-        );
-        // 水平：默认气泡左端紧贴鼠标右侧；右侧空间不足时右端紧贴鼠标左侧
-        let left = mouseAnchor.x + gap;
-        if (left + bubbleWidth > win.innerWidth - margin) {
-          left = Math.max(margin, mouseAnchor.x - gap - bubbleWidth);
-        }
-        bubbleEl.style.left = `${left}px`;
-        bubbleEl.style.top = `${top}px`;
-        bubbleEl.style.visibility = "visible";
-        return;
-      }
-
-      // 选区定位（键盘选中）：垂直优先选区下方，水平以选区为中心
-      let top = rect.bottom + gap;
-      if (top + bubbleHeight > win.innerHeight - margin) {
-        top = rect.top - bubbleHeight - gap;
-        if (top < margin) {
-          top = Math.max(
-            margin,
-            Math.min(rect.top, win.innerHeight - bubbleHeight - margin),
-          );
-        }
-      }
-
-      // 水平：以选区为中心居中，并限制在视口内
+      // 以选区（单词）为中心：气泡中心与选区中心对齐，限制在视口内
       const left = Math.max(
         margin,
         Math.min(
           rect.left + rect.width / 2 - bubbleWidth / 2,
           win.innerWidth - bubbleWidth - margin,
+        ),
+      );
+      const top = Math.max(
+        margin,
+        Math.min(
+          rect.top + rect.height / 2 - bubbleHeight / 2,
+          win.innerHeight - bubbleHeight - margin,
         ),
       );
 
@@ -1777,18 +1751,8 @@ function attachSelectionBubble(win: any, reader?: any) {
     showTimer = setTimeout(showBubble, 120);
   };
 
-  // 持续记录鼠标位置：气泡显示时锚点总是最新的，紧贴鼠标当前所在
-  win.addEventListener("mousemove", (e: any) => {
-    mouseAnchor = { x: e.clientX, y: e.clientY };
-  });
-  win.addEventListener("mouseup", (e: any) => {
-    mouseAnchor = { x: e.clientX, y: e.clientY };
-    scheduleShow();
-  });
-  win.addEventListener("keyup", () => {
-    mouseAnchor = null;
-    scheduleShow();
-  });
+  win.addEventListener("mouseup", scheduleShow);
+  win.addEventListener("keyup", scheduleShow);
   win.addEventListener("scroll", hideBubble, true);
   doc.addEventListener("scroll", hideBubble, true);
   doc.addEventListener(
