@@ -1722,8 +1722,8 @@ function attachSelectionBubble(win: any, reader?: any) {
       bubbleEl.style.visibility = "hidden";
       const bubbleWidth = bubbleEl.offsetWidth || 140;
       const bubbleHeight = bubbleEl.offsetHeight || 34;
-      const gap = 6;
-      const margin = 8;
+      const gap = 0;
+      const margin = 0;
 
       // 水平：以选区为中心居中，限制在视口内
       const left = Math.max(
