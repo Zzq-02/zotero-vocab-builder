@@ -1643,7 +1643,9 @@ function attachSelectionBubble(win: any, reader?: any) {
 
   let bubble: HTMLElement | null = null;
   let showTimer: ReturnType<typeof setTimeout> | null = null;
-  // mouseup 瞬间缓存的选区矩形（避免 120ms 后选区被干扰导致定位偏移）
+  // mouseup 瞬间缓存的鼠标位置（气泡锚点；键盘选中时为 null 走选区定位）
+  let mouseAnchor: { x: number; y: number } | null = null;
+  // mouseup 瞬间缓存的选区矩形（键盘选中回退用）
   let cachedAnchorRect: DOMRect | null = null;
 
   const hideBubble = () => {
@@ -1706,22 +1708,9 @@ function attachSelectionBubble(win: any, reader?: any) {
 
   const showBubble = () => {
     try {
-      // 优先使用 mouseup 瞬间缓存的选区矩形（此时选区最新鲜、最准确）；
-      // 缺失时（如键盘选中）再从当前选区获取
-      let rect = cachedAnchorRect;
-      if (!rect) {
-        const selection = win.getSelection();
-        if (!selection || selection.rangeCount === 0) return hideBubble();
-        const text = selection.toString().trim();
-        if (!cleanWord(text)) return hideBubble();
-        const range = selection.getRangeAt(0);
-        const r = range.getBoundingClientRect();
-        if (!r || (r.width === 0 && r.height === 0)) return hideBubble();
-        rect = r;
-      }
-      // 锚点 = 选区矩形本身（精确覆盖选中的文字，不依赖任何 span 结构）
-
-      const anchorRect: DOMRect = rect as DOMRect;
+      // 鼠标定位优先：用 mouseup 瞬间缓存的鼠标位置（选完单词那一刻），
+      // 气泡放在鼠标右侧（默认）/左侧（右侧空间不足），垂直中心对齐鼠标。
+      // 键盘选中（无鼠标位置）时回退到选区矩形定位。
       const bubbleEl = ensureBubble();
       bubbleEl.style.display = "block";
       // 先测量实际尺寸（同一同步块内完成，不会闪烁），再计算位置
@@ -1731,44 +1720,71 @@ function attachSelectionBubble(win: any, reader?: any) {
       const gap = 0;
       const margin = 0;
 
-      // 水平：以选区为中心居中，限制在视口内
-      const left = Math.max(
-        margin,
-        Math.min(
-          anchorRect.left + anchorRect.width / 2 - bubbleWidth / 2,
-          win.innerWidth - bubbleWidth - margin,
-        ),
-      );
+      let left: number;
+      let top: number;
+      let anchorLabel: string;
 
-      // 垂直：优先显示在选区正上方，上方空间不足则显示在正下方
-      let top = anchorRect.top - bubbleHeight - gap;
-      if (top < margin) {
-        top = anchorRect.bottom + gap;
-        if (top + bubbleHeight > win.innerHeight - margin) {
-          top = Math.max(
-            margin,
-            Math.min(
-              anchorRect.top,
-              win.innerHeight - bubbleHeight - margin,
-            ),
-          );
+      if (mouseAnchor) {
+        // 水平：默认气泡左端贴鼠标右侧；右侧空间不足时右端贴鼠标左侧
+        left = mouseAnchor.x + gap;
+        if (left + bubbleWidth > win.innerWidth - margin) {
+          left = Math.max(margin, mouseAnchor.x - gap - bubbleWidth);
         }
+        // 垂直：气泡中心与鼠标同一水平线
+        top = Math.max(
+          margin,
+          Math.min(
+            mouseAnchor.y - bubbleHeight / 2,
+            win.innerHeight - bubbleHeight - margin,
+          ),
+        );
+        anchorLabel = `mouse=${Math.round(mouseAnchor.x)},${Math.round(mouseAnchor.y)}`;
+      } else {
+        // 键盘选中回退：用缓存的选区矩形（缺失时实时获取）
+        let rect = cachedAnchorRect;
+        if (!rect) {
+          const selection = win.getSelection();
+          if (!selection || selection.rangeCount === 0) return hideBubble();
+          const text = selection.toString().trim();
+          if (!cleanWord(text)) return hideBubble();
+          const r = selection.getRangeAt(0).getBoundingClientRect();
+          if (!r || (r.width === 0 && r.height === 0)) return hideBubble();
+          rect = r;
+        }
+        const anchorRect: DOMRect = rect as DOMRect;
+
+        // 水平：以选区为中心居中
+        left = Math.max(
+          margin,
+          Math.min(
+            anchorRect.left + anchorRect.width / 2 - bubbleWidth / 2,
+            win.innerWidth - bubbleWidth - margin,
+          ),
+        );
+        // 垂直：优先选区正上方，空间不足则正下方
+        top = anchorRect.top - bubbleHeight - gap;
+        if (top < margin) {
+          top = anchorRect.bottom + gap;
+          if (top + bubbleHeight > win.innerHeight - margin) {
+            top = Math.max(
+              margin,
+              Math.min(
+                anchorRect.top,
+                win.innerHeight - bubbleHeight - margin,
+              ),
+            );
+          }
+        }
+        anchorLabel = `rect=${Math.round(anchorRect.left)},${Math.round(anchorRect.top)} ${Math.round(anchorRect.width)}x${Math.round(anchorRect.height)}`;
       }
 
       bubbleEl.style.left = `${left}px`;
       bubbleEl.style.top = `${top}px`;
       bubbleEl.style.visibility = "visible";
 
-      // 调试日志：输出选区矩形与气泡最终位置，便于定位偏差
+      // 调试日志：输出锚点与气泡最终位置，便于定位偏差
       Zotero.debug(
-        "VocabBuilder: bubble rect=" +
-          JSON.stringify({
-            left: Math.round(anchorRect.left),
-            top: Math.round(anchorRect.top),
-            width: Math.round(anchorRect.width),
-            height: Math.round(anchorRect.height),
-          }) +
-          ` bubble=${bubbleWidth}x${bubbleHeight} at=${Math.round(left)},${Math.round(top)} viewport=${Math.round(win.innerWidth)}x${Math.round(win.innerHeight)}`,
+        `VocabBuilder: bubble anchor=${anchorLabel} bubble=${bubbleWidth}x${bubbleHeight} at=${Math.round(left)},${Math.round(top)} viewport=${Math.round(win.innerWidth)}x${Math.round(win.innerHeight)}`,
       );
     } catch (e) {
       hideBubble();
@@ -1780,9 +1796,10 @@ function attachSelectionBubble(win: any, reader?: any) {
     showTimer = setTimeout(showBubble, 120);
   };
 
-  // mouseup 瞬间立即缓存选区矩形（此时选区最新鲜；
-  // 120ms 后 Zotero 选中弹窗 / PDF.js 重绘可能干扰选区）
+  // mouseup 瞬间立即缓存鼠标位置与选区矩形（此时选区最新鲜；
+  // 120ms 后其他插件的选中弹窗 / PDF.js 重绘可能干扰选区）
   win.addEventListener("mouseup", (e: any) => {
+    mouseAnchor = { x: e.clientX, y: e.clientY };
     try {
       const selection = win.getSelection();
       if (selection && selection.rangeCount > 0) {
@@ -1795,6 +1812,7 @@ function attachSelectionBubble(win: any, reader?: any) {
     scheduleShow();
   });
   win.addEventListener("keyup", () => {
+    mouseAnchor = null;
     cachedAnchorRect = null;
     scheduleShow();
   });
