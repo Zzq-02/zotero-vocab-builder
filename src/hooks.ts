@@ -1725,6 +1725,8 @@ function attachSelectionBubble(win: any, reader?: any) {
       const bubbleHeight = bubbleEl.offsetHeight || 34;
       const gap = 0;
       const margin = 0;
+      // 显示在“上方”时额外上移的量（让气泡更靠上一点）
+      const aboveOffset = 6;
 
       let left: number;
       let top: number;
@@ -1740,7 +1742,7 @@ function attachSelectionBubble(win: any, reader?: any) {
               win.innerWidth - bubbleWidth - margin,
             ),
           );
-          top = mouseAnchor.y - bubbleHeight - gap;
+          top = mouseAnchor.y - bubbleHeight - gap - aboveOffset;
           if (top < margin) {
             top = mouseAnchor.y + gap;
           }
@@ -1749,7 +1751,8 @@ function attachSelectionBubble(win: any, reader?: any) {
             Math.min(top, win.innerHeight - bubbleHeight - margin),
           );
         } else {
-          // 拖动选择：按方向放鼠标左右侧；对应侧空间不足时翻到另一侧
+          // 拖动选择：气泡在鼠标的左上方/右上方（随方向），
+          // 上方空间不足时改为左下方/右下方
           if (dragDirection === "left") {
             left = mouseAnchor.x - gap - bubbleWidth;
             if (left < margin) {
@@ -1763,13 +1766,14 @@ function attachSelectionBubble(win: any, reader?: any) {
               left = Math.max(margin, mouseAnchor.x - gap - bubbleWidth);
             }
           }
-          // 垂直：气泡中心与鼠标同一水平线
+          // 垂直：默认气泡在鼠标上方（左上方/右上方），空间不足则放下方
+          top = mouseAnchor.y - bubbleHeight - gap - aboveOffset;
+          if (top < margin) {
+            top = mouseAnchor.y + gap;
+          }
           top = Math.max(
             margin,
-            Math.min(
-              mouseAnchor.y - bubbleHeight / 2,
-              win.innerHeight - bubbleHeight - margin,
-            ),
+            Math.min(top, win.innerHeight - bubbleHeight - margin),
           );
         }
         anchorLabel = `mouse=${Math.round(mouseAnchor.x)},${Math.round(mouseAnchor.y)} dir=${dragDirection ?? (dblClickMode ? "dbl" : "")}`;
