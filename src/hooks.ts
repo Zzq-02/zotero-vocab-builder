@@ -1616,7 +1616,8 @@ function attachReaderKeys(win: any, reader?: any) {
 
   win.addEventListener("keydown", (e: any) => {
     if (matchesShortcut(e, _quickAddShortcut)) {
-      win._vbHideBubble?.();
+      // 快捷键添加时快速取消并关闭气泡（含未到期的显示定时器）
+      win._vbCancelBubble?.();
       let text = "";
       if (reader) text = getReaderSelection(reader);
       if (!text) {
@@ -1658,6 +1659,20 @@ function attachSelectionBubble(win: any, reader?: any) {
     if (bubble) bubble.style.display = "none";
   };
   win._vbHideBubble = hideBubble;
+
+  // 彻底取消：清掉未到期的显示定时器并隐藏气泡、重置锚点
+  const cancelBubble = () => {
+    if (showTimer) {
+      clearTimeout(showTimer);
+      showTimer = null;
+    }
+    hideBubble();
+    mouseAnchor = null;
+    cachedAnchorRect = null;
+    dragDirection = null;
+    dblClickMode = false;
+  };
+  win._vbCancelBubble = cancelBubble;
 
   const ensureBubble = (): HTMLElement => {
     if (bubble) return bubble;
