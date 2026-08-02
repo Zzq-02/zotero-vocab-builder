@@ -132,8 +132,19 @@ export function selectionToSentence(win: Window): string {
     }
 
     const range = selection.getRangeAt(0);
-    const startContainer = range.startContainer;
-    if (startContainer.nodeType !== Node.TEXT_NODE) return selectedText;
+    let startContainer = range.startContainer;
+    let startOffset = range.startOffset;
+
+    // 选区起点可能是元素节点（如从 span 边界开始），取其内部第一个文本节点
+    if (startContainer.nodeType !== Node.TEXT_NODE) {
+      const doc = startContainer.ownerDocument;
+      if (!doc) return selectedText;
+      const walker = doc.createTreeWalker(startContainer, NodeFilter.SHOW_TEXT);
+      const firstText = walker.nextNode();
+      if (!firstText) return selectedText;
+      startContainer = firstText;
+      startOffset = 0;
+    }
 
     // 向上找块级容器（限制深度与文本长度，避免抓到整页）
     let block = startContainer.parentElement as Element | null;
@@ -167,11 +178,7 @@ export function selectionToSentence(win: Window): string {
     }
 
     const fullText = block.textContent || "";
-    const absOffset = textOffsetInElement(
-      block,
-      startContainer,
-      range.startOffset,
-    );
+    const absOffset = textOffsetInElement(block, startContainer, startOffset);
     if (absOffset < 0) return selectedText;
 
     return extractSentenceAt(fullText, absOffset) || selectedText;

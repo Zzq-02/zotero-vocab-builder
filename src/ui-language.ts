@@ -107,6 +107,7 @@ const UI_TEXT: Record<UILanguage, Record<string, string>> = {
     "notify.retrying": "正在重试 {count} 个待处理生词",
     "notify.batchAdded": "已添加 {added} 个，跳过 {skipped} 个（重复或无效）",
     "notify.feedbackEmailCopied": "反馈邮箱已复制。",
+    "notify.speakUnavailable": "当前环境不支持语音合成，请安装系统英文语音包。",
     "menu.vocab": "生词表 ({count})",
     "menu.quickAdd": "+ 快速添加单词",
     "menu.enterWord": "输入单词：",
@@ -228,6 +229,8 @@ const UI_TEXT: Record<UILanguage, Record<string, string>> = {
     "notify.batchAdded":
       "Added {added}, skipped {skipped} (duplicate or invalid)",
     "notify.feedbackEmailCopied": "Feedback email copied.",
+    "notify.speakUnavailable":
+      "Speech synthesis is unavailable in this environment. Install an English voice pack for your OS.",
     "menu.vocab": "Vocabulary ({count})",
     "menu.quickAdd": "+ Quick Add Word",
     "menu.enterWord": "Enter word:",

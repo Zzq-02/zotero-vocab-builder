@@ -1546,31 +1546,82 @@ function findSpeakButton(target: any): any | null {
   }
 }
 
-function speakWord(word: string, win: any) {
-  try {
-    const speech = win?.speechSynthesis;
-    const Utterance = win?.SpeechSynthesisUtterance;
-    if (!speech || !Utterance || !word) return;
+let _lastSpeak: { word: string; at: number } = { word: "", at: 0 };
 
-    const utterance = new Utterance(word);
-    utterance.lang = "en-US";
-    utterance.rate = 0.9;
-    speech.speak(utterance);
-  } catch (e) {
-    Zotero.debug("VocabBuilder: speak: " + e);
+function speakWord(word: string, win?: any) {
+  if (!word) return;
+  const now = Date.now();
+  // 防 mousedown+click 双触发；窗口 500ms，避免误伤用户快速重听
+  if (_lastSpeak.word === word && now - _lastSpeak.at < 500) return;
+  _lastSpeak = { word, at: now };
+
+  // 候选窗口：笔记编辑器 iframe → 各阅读器 iframe（content 上下文）→ 主窗口
+  const candidates: any[] = [];
+  if (win) candidates.push(win);
+  try {
+    const readers = (Zotero.Reader as any)?._readers;
+    const list: any[] = Array.isArray(readers)
+      ? readers
+      : Object.values(readers || {});
+    for (const entry of list) {
+      const reader = entry?.tabID
+        ? Zotero.Reader.getByTabID(entry.tabID)
+        : entry;
+      if (reader?._iframeWindow) candidates.push(reader._iframeWindow);
+    }
+  } catch (e) {}
+  for (const mainWin of Zotero.getMainWindows()) {
+    candidates.push(mainWin);
   }
+
+  for (const candidate of candidates) {
+    try {
+      const speech = candidate?.speechSynthesis;
+      const Utterance = candidate?.SpeechSynthesisUtterance;
+      if (!speech || !Utterance) continue;
+      const utterance = new Utterance(word);
+      utterance.lang = "en-US";
+      utterance.rate = 0.9;
+      speech.speak(utterance);
+      return;
+    } catch (e) {
+      Zotero.debug("VocabBuilder: speak: " + e);
+    }
+  }
+
+  pwNotify(t(_uiLanguage, "notify.speakUnavailable"), "error");
 }
 
 function attachNoteEditorLinks() {
   const editors = ((Zotero.Notes as any)?._editorInstances || []) as any[];
   for (const editor of editors) {
-    const noteID = getNoteID(editor?._item);
-    if (!noteID || !_noteID || noteID !== _noteID) continue;
-
     const win = editor?._iframeWindow;
     const doc = win?.document;
     if (!win || !doc) continue;
     if (doc._vbSourceLinksAttached) continue;
+
+    // 内容驱动：只有包含本插件元素的笔记文档才绑定事件，
+    // 不依赖 noteID 匹配（避免笔记被删除/重建后 noteID 失配导致绑定失效）
+    if (!doc.querySelector(".vb-entry, .vb-source-link, .vb-speak-btn")) {
+      continue;
+    }
+
+    // mousedown 优先处理：在编辑器（ProseMirror）介入前拦截喇叭按钮，
+    // 避免点击事件被编辑器吞掉
+    doc.addEventListener(
+      "mousedown",
+      (event: any) => {
+        const speakButton = findSpeakButton(event.target);
+        if (!speakButton) return;
+        event.preventDefault();
+        event.stopPropagation();
+        speakWord(
+          String(speakButton.getAttribute("data-vb-speak") || ""),
+          win,
+        );
+      },
+      true,
+    );
 
     doc.addEventListener(
       "click",
@@ -1648,6 +1699,7 @@ function attachSelectionBubble(win: any, reader?: any) {
   let bubble: HTMLElement | null = null;
   let showTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingText = "";
+  let pendingSentence = "";
 
   const hideBubble = () => {
     if (bubble) bubble.style.display = "none";
@@ -1674,6 +1726,11 @@ function attachSelectionBubble(win: any, reader?: any) {
       "white-space:nowrap",
     ].join(";");
     el.textContent = t(_uiLanguage, "bubble.add");
+    // 阻止 mousedown 默认行为，避免点击气泡时清除 iframe 内的选区
+    el.addEventListener("mousedown", (e: any) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
     el.addEventListener("click", (e: any) => {
       e.preventDefault();
       e.stopPropagation();
@@ -1686,6 +1743,7 @@ function attachSelectionBubble(win: any, reader?: any) {
           clickText,
           reader,
           win,
+          pendingSentence || undefined,
         );
       }
     });
@@ -1708,6 +1766,7 @@ function attachSelectionBubble(win: any, reader?: any) {
 
       const bubbleEl = ensureBubble();
       pendingText = text;
+      pendingSentence = selectionToSentence(win) || text;
       bubbleEl.style.display = "block";
       let top = rect.bottom + 8;
       if (top + 36 > win.innerHeight) top = Math.max(8, rect.top - 36);
@@ -1739,7 +1798,13 @@ function attachSelectionBubble(win: any, reader?: any) {
   );
 }
 
-async function handleAltA(e: any, text: string, reader?: any, win?: any) {
+async function handleAltA(
+  e: any,
+  text: string,
+  reader?: any,
+  win?: any,
+  sentenceOverride?: string,
+) {
   const selectedText = text.trim();
   if (!selectedText) return;
 
@@ -1749,8 +1814,11 @@ async function handleAltA(e: any, text: string, reader?: any, win?: any) {
   const word = cleanWord(selectedText);
   if (!word) return;
 
-  // 优先从阅读器 DOM 提取包含选中词的完整例句，失败则回退到选区文本
-  const ctx = win ? selectionToSentence(win) || selectedText : selectedText;
+  // 优先使用调用方缓存好的例句（气泡点击时选区可能已被清除），
+  // 否则从阅读器 DOM 提取包含选中词的完整句子，失败则回退到选区文本
+  const ctx =
+    sentenceOverride ||
+    (win ? selectionToSentence(win) || selectedText : selectedText);
   const source = captureReaderSourceContext(reader);
   const entry = await addWord(word, ctx, buildReaderSourceLink(source));
   if (!entry) {
@@ -1805,7 +1873,9 @@ function addMainWindowKeys(win: any) {
         const reader = Zotero.Reader.getByTabID(tabID);
         if (!reader) return;
         const text = getReaderSelection(reader);
-        if (text) void handleAltA(e, text, reader);
+        if (text) {
+          void handleAltA(e, text, reader, reader._iframeWindow);
+        }
       } catch (ex) {}
     }
   });
