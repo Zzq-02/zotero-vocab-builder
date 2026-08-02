@@ -1727,6 +1727,8 @@ function attachSelectionBubble(win: any, reader?: any) {
       const margin = 0;
       // 显示在“上方”时额外上移的量（让气泡更靠上一点）
       const aboveOffset = 6;
+      // 双击模式离鼠标更远的额外间距
+      const dblAboveOffset = 16;
 
       let left: number;
       let top: number;
@@ -1742,7 +1744,7 @@ function attachSelectionBubble(win: any, reader?: any) {
               win.innerWidth - bubbleWidth - margin,
             ),
           );
-          top = mouseAnchor.y - bubbleHeight - gap - aboveOffset;
+          top = mouseAnchor.y - bubbleHeight - gap - dblAboveOffset;
           if (top < margin) {
             top = mouseAnchor.y + gap;
           }
