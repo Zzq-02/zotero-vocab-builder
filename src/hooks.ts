@@ -1486,9 +1486,6 @@ async function openSourceLink(src: string, query: string): Promise<void> {
   const location: any = parsed.position
     ? { position: parsed.position }
     : { pageIndex: parsed.pageIndex };
-  if (!parsed.position && parsed.annotationID) {
-    location.pageIndex = parsed.pageIndex;
-  }
 
   try {
     await (Zotero.Reader as any).open(parsed.itemID, location, {
@@ -1502,16 +1499,9 @@ async function openSourceLink(src: string, query: string): Promise<void> {
   const reader = await waitForReaderByItemID(parsed.itemID);
   if (!reader) return;
 
-  // 无论是否携带精确位置，都尽量在定位后高亮选中词
-  if (parsed.position) {
-    try {
-      await reader.navigate({ position: parsed.position });
-    } catch (e) {}
-    // 等待渲染完成后再执行查找高亮
-    await sleep(400);
-    await highlightReaderQuery(reader, query);
-    return;
-  }
+  // 原始行为：携带精确位置时依赖 Zotero.Reader.open 的原生定位
+  //（打开 PDF 并定位到原选区，带定位动画），不做额外查找
+  if (parsed.position) return;
 
   if (parsed.annotationID) {
     const annotations = (reader?._internalReader as any)?._state?.annotations || [];
@@ -1524,8 +1514,6 @@ async function openSourceLink(src: string, query: string): Promise<void> {
     if (position) {
       try {
         await reader.navigate({ position });
-        await sleep(400);
-        await highlightReaderQuery(reader, query);
         return;
       } catch (e) {}
     }
@@ -1541,10 +1529,10 @@ function findSourceAnchor(target: any): any | null {
     const anchor = element?.closest?.("a") || null;
     if (!anchor) return null;
 
-    const href = String(anchor.getAttribute?.("href") || "").trim();
+    // 只处理插件生成的来源链接（带 data-vb-source），
+    // 避免拦截 Zotero 原生 open-pdf 链接（让系统默认处理）
     const source = String(anchor.getAttribute?.("data-vb-source") || "").trim();
     if (source.startsWith("zotero://open-pdf/")) return anchor;
-    if (href.startsWith("zotero://open-pdf/")) return anchor;
     return null;
   } catch (e) {
     return null;
@@ -1616,11 +1604,20 @@ function bindNoteDocEvents(doc: any) {
 function scanForNoteDocs(win: any, depth = 0) {
   if (!win || depth > 5) return;
 
-  let doc: Document | null = null;
+  let doc: any = null;
   try {
     doc = win.document;
   } catch (e) {}
   if (!doc) return;
+
+  // 当前窗口文档本身：Better Notes 等第三方编辑器可能直接把笔记内容
+  // 嵌在主窗口 DOM（而非独立 iframe），此时事件从未被绑定过
+  if (
+    !doc._vbSourceLinksAttached &&
+    doc.querySelector(".vb-entry, .vb-source-link")
+  ) {
+    bindNoteDocEvents(doc);
+  }
 
   let frames: any[] = [];
   try {
