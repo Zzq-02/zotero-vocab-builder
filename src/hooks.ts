@@ -1816,28 +1816,40 @@ function attachSelectionBubble(win: any, reader?: any) {
     mouseAnchor = null;
   });
 
-  // mouseup 瞬间：判定是否选词（拖动或双击），记录鼠标位置、方向与选区矩形
+  // mouseup 瞬间：按"是否真正选中了文本"决定是否显示气泡；
+  // 拖动选择 → 气泡在鼠标左右侧（随方向）；双击选词 → 气泡在选区上方/下方
   win.addEventListener("mouseup", (e: any) => {
-    const down = mouseDownPos;
-    mouseDownPos = null;
-
-    const dragged = down
-      ? Math.hypot(e.clientX - down.x, e.clientY - down.y) >= 3
-      : true;
-    // 单击（未拖动且不是双击）：不弹气泡
-    if (!dragged && e.detail < 2) return;
-
-    mouseAnchor = { x: e.clientX, y: e.clientY };
-    dragDirection = down && e.clientX < down.x ? "left" : "right";
+    let selectedText = "";
+    let selectionRect: DOMRect | null = null;
     try {
       const selection = win.getSelection();
       if (selection && selection.rangeCount > 0) {
+        selectedText = selection.toString().trim();
         const r = selection.getRangeAt(0).getBoundingClientRect();
         if (r && r.width > 0 && r.height > 0) {
-          cachedAnchorRect = r;
+          selectionRect = r;
         }
       }
     } catch (ex) {}
+
+    // 没有选中有效文本：不弹气泡
+    if (!cleanWord(selectedText)) {
+      mouseAnchor = null;
+      dragDirection = null;
+      cachedAnchorRect = null;
+      return;
+    }
+
+    cachedAnchorRect = selectionRect;
+    if (e.detail >= 2) {
+      // 双击选词：气泡走选区定位（上方/下方），不跟随鼠标
+      mouseAnchor = null;
+      dragDirection = null;
+    } else {
+      mouseAnchor = { x: e.clientX, y: e.clientY };
+      dragDirection =
+        mouseDownPos && e.clientX < mouseDownPos.x ? "left" : "right";
+    }
     scheduleShow();
   });
   win.addEventListener("keyup", () => {
