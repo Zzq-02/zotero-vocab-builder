@@ -1970,6 +1970,9 @@ function getKnownWordsForAttachment(reader: any): string[] {
  * 生词高亮回看：在 PDF 文本层中找到已收录的生词并加高亮。
  * 幂等（已高亮的 span 跳过）；翻页后新渲染的 span 会在下次轮询补高亮。
  */
+/** 高亮诊断弹窗的冷却时间戳（避免刷屏） */
+let _lastHlWarnAt = 0;
+
 function highlightKnownWordsInReader(reader: any): void {
   try {
     if (getPref("highlightReadWordsEnabled") === false) return;
@@ -1984,6 +1987,8 @@ function highlightKnownWordsInReader(reader: any): void {
       (reader?._internalReader as any)?._primaryView?._iframeWindow,
     ];
 
+    let totalSpans = 0;
+    let totalMatched = 0;
     for (const win of candidateWindows) {
       if (!win) continue;
       const doc = win.document;
@@ -2002,6 +2007,7 @@ function highlightKnownWordsInReader(reader: any): void {
       const spans = doc.querySelectorAll(
         ".textLayer span, .textLayer div",
       ) as NodeListOf<Element>;
+      totalSpans += spans.length;
       let count = 0;
       spans.forEach((span: Element) => {
         if (span.classList.contains("vb-hl-word")) return;
@@ -2011,9 +2017,25 @@ function highlightKnownWordsInReader(reader: any): void {
           count++;
         }
       });
+      totalMatched += count;
       Zotero.debug(
         `VocabBuilder: highlight scan itemKey=${String(reader?._item?.key || "")} words=${words.length} textSpans=${spans.length} matched=${count}`,
       );
+    }
+
+    // 有生词但一个都没匹配上：弹窗提示诊断信息（15 秒冷却）
+    if (words.length > 0 && totalMatched === 0) {
+      const now = Date.now();
+      if (now - _lastHlWarnAt > 15000) {
+        _lastHlWarnAt = now;
+        pwNotify(
+          t(_uiLanguage, "notify.hlFailed", {
+            words: words.length,
+            spans: totalSpans,
+          }),
+          "error",
+        );
+      }
     }
   } catch (e) {}
 }
