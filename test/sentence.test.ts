@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { extractSentenceAt } from "../src/utils/sentence.js";
+import { buildLocalContext, extractSentenceAt } from "../src/utils/sentence.js";
 
 describe("sentence", function () {
   describe("extractSentenceAt", function () {
@@ -86,6 +86,56 @@ describe("sentence", function () {
         extractSentenceAt("A single sentence.", 999),
         "A single sentence.",
       );
+    });
+  });
+
+  describe("buildLocalContext", function () {
+    it("collects siblings up to the sentence boundary", function () {
+      const siblings = ["Hello.", "This", "is", "a", "test.", "Bye", "now."];
+      const built = buildLocalContext(siblings, 2, 0);
+      assert.isNotNull(built);
+      assert.equal(built.text, "Hello. This is a test.");
+      // 锚点 "is" 前的文本 "Hello. This " 长度 12
+      assert.equal(built.offset, 12);
+      assert.equal(
+        extractSentenceAt(built.text, built.offset),
+        "This is a test.",
+      );
+    });
+
+    it("collects all siblings when the sentence spans the whole array", function () {
+      const siblings = ["The", "quick", "brown", "fox", "jumps."];
+      const built = buildLocalContext(siblings, 3, 0);
+      assert.isNotNull(built);
+      assert.equal(built.text, "The quick brown fox jumps.");
+      assert.equal(built.offset, 16); // "The "(4) + "quick "(6) + "brown "(6)
+      assert.equal(
+        extractSentenceAt(built.text, built.offset),
+        "The quick brown fox jumps.",
+      );
+    });
+
+    it("stops at block boundaries", function () {
+      const siblings = ["prev.", "mid", "next.", "tail"];
+      const built = buildLocalContext(siblings, 1, 0, {
+        blockFlags: [false, false, false, true],
+      });
+      assert.isNotNull(built);
+      assert.equal(built.text, "prev. mid next.");
+      // 锚点前的 "prev. " 长度 6
+      assert.equal(built.offset, 6);
+    });
+
+    it("does not collect past the max sibling count", function () {
+      const siblings = Array.from({ length: 200 }, (_, i) => `w${i}`);
+      const built = buildLocalContext(siblings, 100, 0, { max: 10 });
+      assert.isNotNull(built);
+      assert.equal(built.text.split(" ").length, 21); // 前10 + 锚点 + 后10
+    });
+
+    it("returns null for an invalid anchor index", function () {
+      assert.isNull(buildLocalContext(["a", "b"], 5, 0));
+      assert.isNull(buildLocalContext([], 0, 0));
     });
   });
 });

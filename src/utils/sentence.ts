@@ -161,10 +161,79 @@ export function selectionToSentence(win: Window): string {
 }
 
 /**
+ * 从兄弟文本序列构建包含锚点的局部文本：从锚点向前/向后收集兄弟，
+ * 遇到含句末标点的兄弟或块级边界即停（最多 max 个），
+ * 使收集范围恰好覆盖锚点所在句子。
+ */
+export function buildLocalContext(
+  siblings: string[],
+  anchorIndex: number,
+  anchorOffset: number,
+  options: { max?: number; blockFlags?: boolean[] } = {},
+): { text: string; offset: number } | null {
+  if (anchorIndex < 0 || anchorIndex >= siblings.length) return null;
+  const max = options.max ?? 80;
+  const blockFlags = options.blockFlags ?? [];
+
+  const prefix: string[] = [];
+  for (let i = anchorIndex - 1; i >= Math.max(0, anchorIndex - max); i--) {
+    const text = siblings[i];
+    prefix.unshift(text);
+    if (SENTENCE_END_RE.test(text) || blockFlags[i]) break;
+  }
+
+  let offset = 0;
+  for (const text of prefix) offset += text.length + 1;
+
+  const suffix: string[] = [];
+  for (
+    let i = anchorIndex + 1;
+    i < Math.min(siblings.length, anchorIndex + max + 1);
+    i++
+  ) {
+    const text = siblings[i];
+    suffix.push(text);
+    if (SENTENCE_END_RE.test(text) || blockFlags[i]) break;
+  }
+
+  const parts = [...prefix, siblings[anchorIndex], ...suffix];
+  return { text: parts.join(" "), offset: offset + anchorOffset };
+}
+
+const BLOCK_TAGS = new Set([
+  "p",
+  "div",
+  "li",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "section",
+  "article",
+  "blockquote",
+  "figcaption",
+  "td",
+  "th",
+  "tr",
+  "table",
+  "ul",
+  "ol",
+  "pre",
+]);
+
+function isBlockElement(element: Element): boolean {
+  return BLOCK_TAGS.has(element.tagName.toLowerCase());
+}
+
+/**
  * 收集包含锚点文本节点的局部文本与锚点偏移：
- * 1) 锚点所在叶子元素文本足够长时直接使用（普通 HTML，如 <p>）；
- * 2) 否则在其父级收集锚点元素前后最多 MAX_SIBLINGS 个兄弟元素
- *    （PDF.js 每词一个 span 的文本层），按 DOM 顺序拼接。
+ * 1) 锚点所在叶子是块级元素（如 <p>）→ 直接用其全文；
+ * 2) 行内叶子（span 等，如 PDF.js 文本层）→ 在父级做兄弟收集，
+ *    收集到句子边界或块级边界为止；
+ * 3) 文本节点直接位于容器内 → 用容器全文；
+ * 4) 以上都失败 → 用容器全文兜底。
  */
 function collectLocalContext(
   node: Node,
@@ -172,45 +241,51 @@ function collectLocalContext(
 ): { text: string; offset: number } | null {
   try {
     const leaf =
-      node.nodeType === Node.TEXT_NODE
-        ? node.parentElement
-        : (node as Element);
-    if (leaf) {
-      const leafText = leaf.textContent || "";
-      if (leafText.trim().length >= 20) {
-        const offset = textOffsetInElement(leaf, node, startOffset);
-        if (offset >= 0) return { text: leafText, offset };
-      }
-    }
-
+      node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as Element);
     const container = leaf?.parentElement;
     if (!container) return null;
 
-    // 文本节点直接位于容器内（无包裹元素）时，用容器全文
-    if (node.nodeType === Node.TEXT_NODE && !leaf) {
-      const text = container.textContent || "";
-      if (text.trim().length >= 20) {
-        const offset = textOffsetInElement(container, node, startOffset);
-        if (offset >= 0) return { text, offset };
+    // 1) 块级叶子：直接用全文
+    if (leaf && isBlockElement(leaf)) {
+      const text = leaf.textContent || "";
+      const offset = textOffsetInElement(leaf, node, startOffset);
+      if (offset >= 0 && text.trim().length >= 20) {
+        return { text, offset };
       }
     }
 
-    if (!leaf) return null;
-    const children = Array.from(container.children);
-    const leafIndex = children.indexOf(leaf);
-    if (leafIndex < 0) return null;
-
-    const MAX_SIBLINGS = 60;
-    const start = Math.max(0, leafIndex - MAX_SIBLINGS);
-    const end = Math.min(children.length, leafIndex + MAX_SIBLINGS + 1);
-    const parts: string[] = [];
-    let offset = 0;
-    for (let i = start; i < end; i++) {
-      const text = children[i].textContent || "";
-      parts.push(text);
-      if (i < leafIndex) offset += text.length + 1;
+    // 2) 行内叶子（span 等）：父级兄弟收集到句子边界
+    if (leaf) {
+      const children = Array.from(container.children);
+      const leafIndex = children.indexOf(leaf);
+      if (leafIndex >= 0) {
+        const siblings = children.map((child) => child.textContent || "");
+        const blockFlags = children.map((child) => isBlockElement(child));
+        const built = buildLocalContext(siblings, leafIndex, startOffset, {
+          blockFlags,
+        });
+        if (built && built.text.trim().length > 0) return built;
+      }
     }
-    return { text: parts.join(" "), offset: offset + startOffset };
+
+    // 3) 文本节点直接位于容器内（无包裹元素）：用容器全文
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = container.textContent || "";
+      const offset = textOffsetInElement(container, node, startOffset);
+      if (offset >= 0 && text.trim().length >= 20) {
+        return { text, offset };
+      }
+    }
+
+    // 4) 兜底：容器全文（即使较短也尝试提取）
+    const fallbackText = container.textContent || "";
+    if (fallbackText.trim().length > 0) {
+      const fallbackOffset = textOffsetInElement(container, node, startOffset);
+      if (fallbackOffset >= 0)
+        return { text: fallbackText, offset: fallbackOffset };
+    }
+
+    return null;
   } catch (e) {
     return null;
   }
