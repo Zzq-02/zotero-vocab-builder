@@ -1643,6 +1643,8 @@ function attachSelectionBubble(win: any, reader?: any) {
 
   let bubble: HTMLElement | null = null;
   let showTimer: ReturnType<typeof setTimeout> | null = null;
+  // mouseup 时的鼠标位置（键盘选中时为 null，走选区定位）
+  let mouseAnchor: { x: number; y: number } | null = null;
 
   const hideBubble = () => {
     if (bubble) bubble.style.display = "none";
@@ -1723,7 +1725,24 @@ function attachSelectionBubble(win: any, reader?: any) {
       const gap = 8;
       const margin = 8;
 
-      // 垂直：优先选区下方，空间不足则放选区上方，仍不足则夹在视口内
+      if (mouseAnchor) {
+        // 鼠标定位：气泡紧贴鼠标，优先右侧，右侧空间不足则放左侧
+        let left = mouseAnchor.x + gap;
+        if (left + bubbleWidth > win.innerWidth - margin) {
+          left = Math.max(margin, mouseAnchor.x - gap - bubbleWidth);
+        }
+        let top = mouseAnchor.y - bubbleHeight / 2;
+        top = Math.max(
+          margin,
+          Math.min(top, win.innerHeight - bubbleHeight - margin),
+        );
+        bubbleEl.style.left = `${left}px`;
+        bubbleEl.style.top = `${top}px`;
+        bubbleEl.style.visibility = "visible";
+        return;
+      }
+
+      // 选区定位（键盘选中）：垂直优先选区下方，水平以选区为中心
       let top = rect.bottom + gap;
       if (top + bubbleHeight > win.innerHeight - margin) {
         top = rect.top - bubbleHeight - gap;
@@ -1757,8 +1776,14 @@ function attachSelectionBubble(win: any, reader?: any) {
     showTimer = setTimeout(showBubble, 200);
   };
 
-  win.addEventListener("mouseup", scheduleShow);
-  win.addEventListener("keyup", scheduleShow);
+  win.addEventListener("mouseup", (e: any) => {
+    mouseAnchor = { x: e.clientX, y: e.clientY };
+    scheduleShow();
+  });
+  win.addEventListener("keyup", () => {
+    mouseAnchor = null;
+    scheduleShow();
+  });
   win.addEventListener("scroll", hideBubble, true);
   doc.addEventListener("scroll", hideBubble, true);
   doc.addEventListener(
