@@ -1722,7 +1722,7 @@ function attachSelectionBubble(win: any, reader?: any) {
       bubbleEl.style.visibility = "hidden";
       const bubbleWidth = bubbleEl.offsetWidth || 140;
       const bubbleHeight = bubbleEl.offsetHeight || 34;
-      const gap = 8;
+      const gap = 6;
       const margin = 8;
 
       if (mouseAnchor) {
@@ -1774,9 +1774,13 @@ function attachSelectionBubble(win: any, reader?: any) {
 
   const scheduleShow = () => {
     if (showTimer) clearTimeout(showTimer);
-    showTimer = setTimeout(showBubble, 200);
+    showTimer = setTimeout(showBubble, 120);
   };
 
+  // 持续记录鼠标位置：气泡显示时锚点总是最新的，紧贴鼠标当前所在
+  win.addEventListener("mousemove", (e: any) => {
+    mouseAnchor = { x: e.clientX, y: e.clientY };
+  });
   win.addEventListener("mouseup", (e: any) => {
     mouseAnchor = { x: e.clientX, y: e.clientY };
     scheduleShow();
