@@ -29,6 +29,7 @@ const UI_TEXT: Record<UILanguage, Record<string, string>> = {
     "vocab.quickPlaceholder": "输入单词...",
     "vocab.quickAdd": "+ 添加",
     "vocab.sync": "从生词笔记导入",
+    "highlight.enabled": "在 PDF 中高亮已收录的生词",
     "vocab.batchPlaceholder": "批量添加：每行一个单词，或使用逗号、分号分隔",
     "vocab.batchAdd": "批量添加",
     "api.title": "翻译 API",
@@ -143,6 +144,7 @@ const UI_TEXT: Record<UILanguage, Record<string, string>> = {
     "vocab.quickPlaceholder": "Enter word...",
     "vocab.quickAdd": "+ Add",
     "vocab.sync": "Import From Vocabulary Note",
+    "highlight.enabled": "Highlight known words in PDFs",
     "vocab.batchPlaceholder":
       "Batch add: one word per line, or separated by commas or semicolons",
     "vocab.batchAdd": "Batch Add",

@@ -20,6 +20,7 @@ declare namespace _ZoteroTypes {
       "uiLanguage": string;
       "quickAddShortcut": string;
       "selectionBubbleEnabled": boolean;
+      "highlightReadWordsEnabled": boolean;
       "translationCachePath": string;
       "translationCacheEnabled": boolean;
       "exportFormat": string;

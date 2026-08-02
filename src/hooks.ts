@@ -1949,6 +1949,66 @@ function pwNotify(msg: string, tone: NotificationTone = "info") {
   showNotification(msg, tone);
 }
 
+/** 当前 PDF 附件中已收录的生词（按来源链接里的附件 key 匹配） */
+function getKnownWordsForAttachment(reader: any): string[] {
+  const itemKey = reader?._item?.key;
+  if (!itemKey) return [];
+
+  const words: string[] = [];
+  for (const entry of _ws) {
+    if (!entry.src) continue;
+    const match = String(entry.src).match(/\/items\/([A-Z0-9]{8})(?:\?|$)/i);
+    if (match && match[1] === itemKey) {
+      const cleaned = cleanWord(entry.word);
+      if (cleaned) words.push(cleaned);
+    }
+  }
+  return words;
+}
+
+/**
+ * 生词高亮回看：在 PDF 文本层中找到已收录的生词并加高亮。
+ * 幂等（已高亮的 span 跳过）；翻页后新渲染的 span 会在下次轮询补高亮。
+ */
+function highlightKnownWordsInReader(reader: any): void {
+  try {
+    if (getPref("highlightReadWordsEnabled") === false) return;
+
+    const win = reader?._iframeWindow;
+    const doc = win?.document;
+    if (!doc) return;
+
+    const words = getKnownWordsForAttachment(reader);
+    if (!words.length) return;
+
+    // 高亮样式（每个文档注入一次）
+    if (!doc._vbHlStyleInjected) {
+      const style = doc.createElement("style");
+      style.textContent =
+        ".vb-hl-word{background-color:rgba(255,235,59,.45)!important;border-radius:2px}";
+      (doc.head || doc.documentElement).appendChild(style);
+      doc._vbHlStyleInjected = true;
+    }
+
+    const wordSet = new Set(words);
+    const spans = doc.querySelectorAll(
+      ".textLayer span, .textLayer div",
+    ) as NodeListOf<Element>;
+    let count = 0;
+    spans.forEach((span: Element) => {
+      if (span.classList.contains("vb-hl-word")) return;
+      const cleaned = cleanWord((span.textContent || "").trim());
+      if (cleaned && wordSet.has(cleaned)) {
+        span.classList.add("vb-hl-word");
+        count++;
+      }
+    });
+    if (count > 0) {
+      Zotero.debug(`VocabBuilder: highlighted ${count} known words`);
+    }
+  } catch (e) {}
+}
+
 function pollReaders() {
   try {
     const readers = (Zotero.Reader as any)._readers;
@@ -1975,6 +2035,9 @@ function pollReaders() {
           attachReaderKeys(primaryWindow, reader);
         }
       } catch (e) {}
+
+      // 生词高亮回看（幂等；翻页后新渲染的 span 在下次轮询补高亮）
+      highlightKnownWordsInReader(reader);
     }
   } catch (e) {}
 }

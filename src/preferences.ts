@@ -1082,6 +1082,16 @@ function bindControls() {
     });
   }
 
+  const highlightToggle = getPrefsDocument().getElementById(
+    "vb-highlight-enabled",
+  ) as any;
+  if (highlightToggle) {
+    highlightToggle.checked = getPref("highlightReadWordsEnabled") !== false;
+    bindEventOnce(highlightToggle, "HighlightEnabled", "change", () => {
+      setPref("highlightReadWordsEnabled", highlightToggle.checked);
+    });
+  }
+
   bindTextPref("vb-export-format", "exportFormat");
   bindTextPref("vb-export-scope", "exportScope");
 }
