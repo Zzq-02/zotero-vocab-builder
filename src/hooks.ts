@@ -1592,7 +1592,107 @@ function speakWord(word: string, win?: any) {
   pwNotify(t(_uiLanguage, "notify.speakUnavailable"), "error");
 }
 
+function bindNoteDocEvents(doc: any, win: any) {
+  if (!doc || doc._vbSourceLinksAttached) return; // 幂等：两条绑定路径共用
+  doc._vbSourceLinksAttached = true;
+
+  // mousedown 优先处理：在编辑器（ProseMirror / Better Notes 等）介入前
+  // 拦截喇叭按钮，避免点击事件被编辑器吞掉
+  doc.addEventListener(
+    "mousedown",
+    (event: any) => {
+      const speakButton = findSpeakButton(event.target);
+      if (!speakButton) return;
+      event.preventDefault();
+      event.stopPropagation();
+      speakWord(
+        String(speakButton.getAttribute("data-vb-speak") || ""),
+        win,
+      );
+    },
+    true,
+  );
+
+  doc.addEventListener(
+    "click",
+    (event: any) => {
+      const speakButton = findSpeakButton(event.target);
+      if (speakButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        speakWord(
+          String(speakButton.getAttribute("data-vb-speak") || ""),
+          win,
+        );
+        return;
+      }
+
+      const anchor = findSourceAnchor(event.target);
+      if (!anchor) return;
+
+      const src = String(
+        anchor.getAttribute("data-vb-source") ||
+          anchor.getAttribute("href") ||
+          "",
+      ).trim();
+      const query = String(
+        anchor.getAttribute("data-vb-query") ||
+          anchor.getAttribute("data-vb-word") ||
+          anchor.querySelector?.("strong")?.textContent ||
+          anchor.textContent ||
+          "",
+      ).trim();
+      if (!src) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      void openSourceLink(src, query);
+    },
+    true,
+  );
+}
+
+/**
+ * 递归扫描窗口及其所有 iframe（覆盖 Zotero 原生笔记编辑器之外的
+ * 第三方编辑器，如 Better Notes）：文档含插件元素即绑定事件。
+ */
+function scanForNoteDocs(win: any, depth = 0) {
+  if (!win || depth > 5) return;
+
+  let doc: Document | null = null;
+  try {
+    doc = win.document;
+  } catch (e) {}
+  if (!doc) return;
+
+  let frames: any[] = [];
+  try {
+    frames = Array.from(doc.querySelectorAll("iframe"));
+  } catch (e) {}
+
+  for (const iframe of frames) {
+    let iframeDoc: any = null;
+    let iframeWin: any = null;
+    try {
+      iframeDoc = iframe.contentDocument;
+      iframeWin = iframe.contentWindow;
+    } catch (e) {}
+
+    // 始终递归子窗口（不因本层跳过而阻断嵌套 iframe 的扫描）
+    if (iframeWin) scanForNoteDocs(iframeWin, depth + 1);
+
+    if (
+      iframeDoc &&
+      !iframeDoc._vbSourceLinksAttached &&
+      iframeDoc.querySelector(".vb-entry, .vb-source-link, .vb-speak-btn")
+    ) {
+      bindNoteDocEvents(iframeDoc, iframeWin);
+    }
+  }
+}
+
 function attachNoteEditorLinks() {
+  // 1) Zotero 原生笔记编辑器
   const editors = ((Zotero.Notes as any)?._editorInstances || []) as any[];
   for (const editor of editors) {
     const win = editor?._iframeWindow;
@@ -1600,68 +1700,17 @@ function attachNoteEditorLinks() {
     if (!win || !doc) continue;
     if (doc._vbSourceLinksAttached) continue;
 
-    // 内容驱动：只有包含本插件元素的笔记文档才绑定事件，
-    // 不依赖 noteID 匹配（避免笔记被删除/重建后 noteID 失配导致绑定失效）
+    // 内容驱动：只有包含本插件元素的笔记文档才绑定事件
     if (!doc.querySelector(".vb-entry, .vb-source-link, .vb-speak-btn")) {
       continue;
     }
 
-    // mousedown 优先处理：在编辑器（ProseMirror）介入前拦截喇叭按钮，
-    // 避免点击事件被编辑器吞掉
-    doc.addEventListener(
-      "mousedown",
-      (event: any) => {
-        const speakButton = findSpeakButton(event.target);
-        if (!speakButton) return;
-        event.preventDefault();
-        event.stopPropagation();
-        speakWord(
-          String(speakButton.getAttribute("data-vb-speak") || ""),
-          win,
-        );
-      },
-      true,
-    );
+    bindNoteDocEvents(doc, win);
+  }
 
-    doc.addEventListener(
-      "click",
-      (event: any) => {
-        const speakButton = findSpeakButton(event.target);
-        if (speakButton) {
-          event.preventDefault();
-          event.stopPropagation();
-          speakWord(
-            String(speakButton.getAttribute("data-vb-speak") || ""),
-            win,
-          );
-          return;
-        }
-
-        const anchor = findSourceAnchor(event.target);
-        if (!anchor) return;
-
-        const src = String(
-          anchor.getAttribute("data-vb-source") ||
-            anchor.getAttribute("href") ||
-            "",
-        ).trim();
-        const query = String(
-          anchor.getAttribute("data-vb-query") ||
-            anchor.getAttribute("data-vb-word") ||
-            anchor.querySelector?.("strong")?.textContent ||
-            anchor.textContent ||
-            "",
-        ).trim();
-        if (!src) return;
-
-        event.preventDefault();
-        event.stopPropagation();
-        void openSourceLink(src, query);
-      },
-      true,
-    );
-
-    doc._vbSourceLinksAttached = true;
+  // 2) 通用 iframe 扫描：覆盖 Better Notes 等第三方编辑器
+  for (const mainWin of Zotero.getMainWindows()) {
+    scanForNoteDocs(mainWin);
   }
 }
 
