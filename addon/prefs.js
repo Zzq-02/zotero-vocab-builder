@@ -10,6 +10,7 @@ pref("customApiPhonePath", "");
 pref("customApiExamplePath", "");
 pref("uiLanguage", "zh-CN");
 pref("quickAddShortcut", "alt+a");
+pref("selectionBubbleEnabled", true);
 pref("translationCachePath", "");
 pref("translationCacheEnabled", true);
 pref("exportFormat", "csv");

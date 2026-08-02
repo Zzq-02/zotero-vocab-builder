@@ -1072,6 +1072,16 @@ function bindControls() {
     });
   }
 
+  const bubbleToggle = getPrefsDocument().getElementById(
+    "vb-bubble-enabled",
+  ) as any;
+  if (bubbleToggle) {
+    bubbleToggle.checked = getPref("selectionBubbleEnabled") !== false;
+    bindEventOnce(bubbleToggle, "BubbleEnabled", "change", () => {
+      setPref("selectionBubbleEnabled", bubbleToggle.checked);
+    });
+  }
+
   bindTextPref("vb-export-format", "exportFormat");
   bindTextPref("vb-export-scope", "exportScope");
 }

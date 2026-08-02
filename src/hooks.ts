@@ -1649,6 +1649,8 @@ function attachSelectionBubble(win: any, reader?: any) {
   let mouseAnchor: { x: number; y: number } | null = null;
   // 拖动方向（从左往右选词 → 气泡放右侧；从右往左 → 左侧）
   let dragDirection: "left" | "right" | null = null;
+  // 双击选词模式（气泡显示在鼠标上方/下方，而非左右侧）
+  let dblClickMode = false;
   // mouseup 瞬间缓存的选区矩形（键盘选中回退用）
   let cachedAnchorRect: DOMRect | null = null;
 
@@ -1729,30 +1731,48 @@ function attachSelectionBubble(win: any, reader?: any) {
       let anchorLabel: string;
 
       if (mouseAnchor) {
-        // 按拖动方向放置：从左往右选词 → 鼠标右侧；从右往左 → 鼠标左侧；
-        // 对应侧空间不足时翻到另一侧
-        if (dragDirection === "left") {
-          left = mouseAnchor.x - gap - bubbleWidth;
-          if (left < margin) {
-            left = mouseAnchor.x + gap;
+        if (dblClickMode) {
+          // 双击选词：气泡水平居中于鼠标，显示在鼠标上方（优先）/下方（兜底）
+          left = Math.max(
+            margin,
+            Math.min(
+              mouseAnchor.x - bubbleWidth / 2,
+              win.innerWidth - bubbleWidth - margin,
+            ),
+          );
+          top = mouseAnchor.y - bubbleHeight - gap;
+          if (top < margin) {
+            top = mouseAnchor.y + gap;
           }
-          left = Math.min(left, win.innerWidth - bubbleWidth - margin);
-          left = Math.max(margin, left);
+          top = Math.max(
+            margin,
+            Math.min(top, win.innerHeight - bubbleHeight - margin),
+          );
         } else {
-          left = mouseAnchor.x + gap;
-          if (left + bubbleWidth > win.innerWidth - margin) {
-            left = Math.max(margin, mouseAnchor.x - gap - bubbleWidth);
+          // 拖动选择：按方向放鼠标左右侧；对应侧空间不足时翻到另一侧
+          if (dragDirection === "left") {
+            left = mouseAnchor.x - gap - bubbleWidth;
+            if (left < margin) {
+              left = mouseAnchor.x + gap;
+            }
+            left = Math.min(left, win.innerWidth - bubbleWidth - margin);
+            left = Math.max(margin, left);
+          } else {
+            left = mouseAnchor.x + gap;
+            if (left + bubbleWidth > win.innerWidth - margin) {
+              left = Math.max(margin, mouseAnchor.x - gap - bubbleWidth);
+            }
           }
+          // 垂直：气泡中心与鼠标同一水平线
+          top = Math.max(
+            margin,
+            Math.min(
+              mouseAnchor.y - bubbleHeight / 2,
+              win.innerHeight - bubbleHeight - margin,
+            ),
+          );
         }
-        // 垂直：气泡中心与鼠标同一水平线
-        top = Math.max(
-          margin,
-          Math.min(
-            mouseAnchor.y - bubbleHeight / 2,
-            win.innerHeight - bubbleHeight - margin,
-          ),
-        );
-        anchorLabel = `mouse=${Math.round(mouseAnchor.x)},${Math.round(mouseAnchor.y)} dir=${dragDirection}`;
+        anchorLabel = `mouse=${Math.round(mouseAnchor.x)},${Math.round(mouseAnchor.y)} dir=${dragDirection ?? (dblClickMode ? "dbl" : "")}`;
       } else {
         // 键盘选中回退：用缓存的选区矩形（缺失时实时获取）
         let rect = cachedAnchorRect;
@@ -1810,15 +1830,23 @@ function attachSelectionBubble(win: any, reader?: any) {
     showTimer = setTimeout(showBubble, 120);
   };
 
+  // 气泡开关：可在设置中关闭（关闭后不显示，也不响应选中）
+  const bubbleEnabled = () => getPref("selectionBubbleEnabled") !== false;
+
   // mousedown 记录起点：用于判断是否真正拖动选择了单词，以及拖动方向
   win.addEventListener("mousedown", (e: any) => {
     mouseDownPos = { x: e.clientX, y: e.clientY };
     mouseAnchor = null;
+    if (!bubbleEnabled()) hideBubble();
   });
 
   // mouseup 瞬间：按"是否真正选中了文本"决定是否显示气泡；
-  // 拖动选择 → 气泡在鼠标左右侧（随方向）；双击选词 → 气泡在选区上方/下方
+  // 拖动选择 → 气泡在鼠标左右侧（随方向）；双击选词 → 气泡在鼠标上方/下方
   win.addEventListener("mouseup", (e: any) => {
+    if (!bubbleEnabled()) {
+      hideBubble();
+      return;
+    }
     let selectedText = "";
     let selectionRect: DOMRect | null = null;
     try {
@@ -1842,19 +1870,26 @@ function attachSelectionBubble(win: any, reader?: any) {
 
     cachedAnchorRect = selectionRect;
     if (e.detail >= 2) {
-      // 双击选词：气泡走选区定位（上方/下方），不跟随鼠标
-      mouseAnchor = null;
+      // 双击选词：气泡显示在鼠标上方/下方（水平居中于鼠标）
+      mouseAnchor = { x: e.clientX, y: e.clientY };
       dragDirection = null;
+      dblClickMode = true;
     } else {
       mouseAnchor = { x: e.clientX, y: e.clientY };
       dragDirection =
         mouseDownPos && e.clientX < mouseDownPos.x ? "left" : "right";
+      dblClickMode = false;
     }
     scheduleShow();
   });
   win.addEventListener("keyup", () => {
+    if (!bubbleEnabled()) {
+      hideBubble();
+      return;
+    }
     mouseAnchor = null;
     dragDirection = null;
+    dblClickMode = false;
     cachedAnchorRect = null;
     scheduleShow();
   });
