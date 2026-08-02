@@ -1694,13 +1694,37 @@ function attachSelectionBubble(win: any, reader?: any) {
       pendingText = text;
       pendingSentence = selectionToSentence(win) || text;
       bubbleEl.style.display = "block";
-      let top = rect.bottom + 8;
-      if (top + 36 > win.innerHeight) top = Math.max(8, rect.top - 36);
-      bubbleEl.style.left = `${Math.max(
-        8,
-        Math.min(rect.left, win.innerWidth - 150),
-      )}px`;
+      // 先测量实际尺寸（同一同步块内完成，不会闪烁），再计算位置
+      bubbleEl.style.visibility = "hidden";
+      const bubbleWidth = bubbleEl.offsetWidth || 140;
+      const bubbleHeight = bubbleEl.offsetHeight || 34;
+      const gap = 8;
+      const margin = 8;
+
+      // 垂直：优先选区下方，空间不足则放选区上方，仍不足则夹在视口内
+      let top = rect.bottom + gap;
+      if (top + bubbleHeight > win.innerHeight - margin) {
+        top = rect.top - bubbleHeight - gap;
+        if (top < margin) {
+          top = Math.max(
+            margin,
+            Math.min(rect.top, win.innerHeight - bubbleHeight - margin),
+          );
+        }
+      }
+
+      // 水平：以选区为中心居中，并限制在视口内
+      const left = Math.max(
+        margin,
+        Math.min(
+          rect.left + rect.width / 2 - bubbleWidth / 2,
+          win.innerWidth - bubbleWidth - margin,
+        ),
+      );
+
+      bubbleEl.style.left = `${left}px`;
       bubbleEl.style.top = `${top}px`;
+      bubbleEl.style.visibility = "visible";
     } catch (e) {
       hideBubble();
     }
