@@ -1709,10 +1709,32 @@ function attachSelectionBubble(win: any, reader?: any) {
       const text = selection.toString().trim();
       if (!cleanWord(text)) return hideBubble();
 
-      const rect = selection.getRangeAt(0).getBoundingClientRect();
+      const range = selection.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
       if (!rect || (rect.width === 0 && rect.height === 0)) {
         return hideBubble();
       }
+
+      // 锚定到单词本身而不是整个选区：PDF.js 中每个单词是独立 span，
+      // 位置固定；选区起点所在的单词级元素（文本较短）优先作为锚点，
+      // 这样无论双击还是拖动选中，气泡相对单词的位置都稳定
+      let anchorRect = rect;
+      try {
+        const startContainer = range.startContainer;
+        const anchorEl =
+          startContainer.nodeType === 1
+            ? startContainer
+            : startContainer.parentElement;
+        if (anchorEl) {
+          const anchorText = (anchorEl.textContent || "").trim();
+          if (anchorText.length > 0 && anchorText.length <= 40) {
+            const elRect = anchorEl.getBoundingClientRect();
+            if (elRect && elRect.width > 0 && elRect.height > 0) {
+              anchorRect = elRect;
+            }
+          }
+        }
+      } catch (e) {}
 
       const bubbleEl = ensureBubble();
       bubbleEl.style.display = "block";
@@ -1722,18 +1744,18 @@ function attachSelectionBubble(win: any, reader?: any) {
       const bubbleHeight = bubbleEl.offsetHeight || 34;
       const margin = 8;
 
-      // 以选区（单词）为中心：气泡中心与选区中心对齐，限制在视口内
+      // 以锚点（单词）为中心：气泡中心与锚点中心对齐，限制在视口内
       const left = Math.max(
         margin,
         Math.min(
-          rect.left + rect.width / 2 - bubbleWidth / 2,
+          anchorRect.left + anchorRect.width / 2 - bubbleWidth / 2,
           win.innerWidth - bubbleWidth - margin,
         ),
       );
       const top = Math.max(
         margin,
         Math.min(
-          rect.top + rect.height / 2 - bubbleHeight / 2,
+          anchorRect.top + anchorRect.height / 2 - bubbleHeight / 2,
           win.innerHeight - bubbleHeight - margin,
         ),
       );
