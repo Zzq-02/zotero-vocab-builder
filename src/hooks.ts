@@ -2055,8 +2055,10 @@ function highlightKnownWordsInReader(reader: any): void {
       }
 
       const wordSet = new Set(words);
+      // 只处理 span（文本项）；不要匹配 .textLayer 容器 div，
+      // 否则会对整页文本做拆分，破坏 PDF.js 的文本层结构
       const spans = doc.querySelectorAll(
-        ".textLayer span, .textLayer div",
+        ".textLayer span",
       ) as NodeListOf<Element>;
       totalSpans += spans.length;
       let count = 0;
@@ -2068,7 +2070,10 @@ function highlightKnownWordsInReader(reader: any): void {
         ) {
           return;
         }
-        const cleaned = cleanWord((span.textContent || "").trim());
+        // 防御：过长的 span（疑似容器/整段）不拆分
+        const rawText = (span.textContent || "").trim();
+        if (rawText.length > 200) return;
+        const cleaned = cleanWord(rawText);
         if (!cleaned) return;
         // 整 span 精确匹配优先；span 含多个词时按词分词匹配
         //（Zotero 9 的文本层 span 粒度可能是文本项而非单词）
@@ -2077,8 +2082,14 @@ function highlightKnownWordsInReader(reader: any): void {
           ? cleaned
           : tokens.find((token) => wordSet.has(token));
         if (!matchedToken) return;
-        // 只高亮单词本身（拆分文本节点，给词加背景，不动其余文本）
-        if (highlightTokenInSpan(span, matchedToken)) count++;
+        // 只高亮单词本身（拆分文本节点，给词加背景，不动其余文本）；
+        // 拆分失败时若整 span 就是目标词，退回整 span 高亮
+        if (highlightTokenInSpan(span, matchedToken)) {
+          count++;
+        } else if (wordSet.has(cleaned)) {
+          span.classList.add("vb-hl-word");
+          count++;
+        }
       });
       totalMatched += count;
       Zotero.debug(
