@@ -1061,6 +1061,17 @@ function bindControls() {
   bindTextPref("vb-custom-api-phone", "customApiPhonePath");
   bindTextPref("vb-custom-api-example", "customApiExamplePath");
   bindTextPref("vb-cache-path", "translationCachePath");
+
+  const cacheToggle = getPrefsDocument().getElementById(
+    "vb-cache-enabled",
+  ) as any;
+  if (cacheToggle) {
+    cacheToggle.checked = getPref("translationCacheEnabled") !== false;
+    bindEventOnce(cacheToggle, "CacheEnabled", "change", () => {
+      setPref("translationCacheEnabled", cacheToggle.checked);
+    });
+  }
+
   bindTextPref("vb-export-format", "exportFormat");
   bindTextPref("vb-export-scope", "exportScope");
 }

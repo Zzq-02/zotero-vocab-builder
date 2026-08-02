@@ -20,6 +20,7 @@ declare namespace _ZoteroTypes {
       "uiLanguage": string;
       "quickAddShortcut": string;
       "translationCachePath": string;
+      "translationCacheEnabled": boolean;
       "exportFormat": string;
       "exportScope": string;
     };

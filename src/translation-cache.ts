@@ -127,7 +127,18 @@ export async function lookupTranslation(
   return { ...hit };
 }
 
-/** 写入翻译缓存（先等待磁盘加载完成，再更新内存并串行落盘，避免并发覆盖） */
+/** 写盘防抖定时器（多次翻译只合并为一次落盘，减轻 IOUtils 压力） */
+let writeTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleCacheWrite() {
+  if (writeTimer) return;
+  writeTimer = setTimeout(() => {
+    writeTimer = null;
+    writeChain = writeChain.then(() => writeCacheToDisk()).catch(() => {});
+  }, 400);
+}
+
+/** 写入翻译缓存：内存立即更新（查询立即可见），磁盘写入防抖合并 */
 export function storeTranslation(
   word: string,
   result: TranslationResult,
@@ -137,20 +148,17 @@ export function storeTranslation(
     return Promise.resolve();
   }
 
-  writeChain = writeChain
-    .then(async () => {
-      await ensureLoaded();
-      cache.set(cleaned, {
-        trans: result.trans || "",
-        def: result.def || "",
-        pos: result.pos || "",
-        phone: result.phone || "",
-        example: result.example || "",
-      });
-      await writeCacheToDisk();
-    })
-    .catch(() => {});
-  return writeChain;
+  // 等待首次磁盘加载完成，避免被 ensureLoaded 的 cache.clear() 覆盖
+  return ensureLoaded().then(() => {
+    cache.set(cleaned, {
+      trans: result.trans || "",
+      def: result.def || "",
+      pos: result.pos || "",
+      phone: result.phone || "",
+      example: result.example || "",
+    });
+    scheduleCacheWrite();
+  });
 }
 
 async function writeCacheToDisk(): Promise<void> {
@@ -168,6 +176,10 @@ async function writeCacheToDisk(): Promise<void> {
 
 /** 清空缓存（内存与磁盘），测试或设置项使用 */
 export async function clearTranslationCache(): Promise<void> {
+  if (writeTimer) {
+    clearTimeout(writeTimer);
+    writeTimer = null;
+  }
   generation++;
   cache.clear();
   loaded = true;

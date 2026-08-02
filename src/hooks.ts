@@ -218,8 +218,9 @@ async function _fetchAPI(
 async function _translate(
   word: string,
 ): Promise<{ trans: string; def: string; pos: string; phone: string; example: string }> {
-  // 先查本地翻译缓存（离线词库），命中则直接返回
-  const cached = await lookupTranslation(word);
+  // 先查本地翻译缓存（离线词库），命中则直接返回；可关闭以完全走在线翻译
+  const cacheEnabled = getPref("translationCacheEnabled") !== false;
+  const cached = cacheEnabled ? await lookupTranslation(word) : null;
   if (cached) return cached;
 
   const result = { trans: "", def: "", pos: "", phone: "", example: "" };
@@ -231,7 +232,7 @@ async function _translate(
     phone: string;
     example: string;
   }) => {
-    if (finalResult.trans || finalResult.def) {
+    if (cacheEnabled && (finalResult.trans || finalResult.def)) {
       void storeTranslation(word, finalResult);
     }
     return finalResult;
@@ -910,7 +911,8 @@ async function _backgroundSync(
       }
     } else {
       // 离线时先查本地翻译缓存，命中则直接完成
-      const cached = await lookupTranslation(cleaned);
+      const cacheEnabled = getPref("translationCacheEnabled") !== false;
+      const cached = cacheEnabled ? await lookupTranslation(cleaned) : null;
       await noteSync;
       const latestNote = await ensureNote(false);
       if (latestNote && !(await noteStillHasWord(latestNote, cleaned))) return;

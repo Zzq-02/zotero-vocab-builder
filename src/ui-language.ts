@@ -46,6 +46,7 @@ const UI_TEXT: Record<UILanguage, Record<string, string>> = {
     "api.phonePath": "音标路径：",
     "api.examplePath": "例句路径（可选）：",
     "cache.title": "翻译缓存",
+    "cache.enabled": "启用翻译缓存（离线词库）",
     "cache.path": "缓存路径：",
     "cache.pathPlaceholder": "留空使用默认位置",
     "cache.hint":
@@ -159,6 +160,7 @@ const UI_TEXT: Record<UILanguage, Record<string, string>> = {
     "api.phonePath": "Phonetic path:",
     "api.examplePath": "Example path (optional):",
     "cache.title": "Translation Cache",
+    "cache.enabled": "Enable translation cache (offline dictionary)",
     "cache.path": "Cache path:",
     "cache.pathPlaceholder": "Leave empty for default location",
     "cache.hint":
