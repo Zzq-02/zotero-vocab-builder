@@ -1742,9 +1742,10 @@ function attachSelectionBubble(win: any, reader?: any) {
       bubbleEl.style.visibility = "hidden";
       const bubbleWidth = bubbleEl.offsetWidth || 140;
       const bubbleHeight = bubbleEl.offsetHeight || 34;
+      const gap = 6;
       const margin = 8;
 
-      // 以锚点（单词）为中心：气泡中心与锚点中心对齐，限制在视口内
+      // 水平：以锚点（单词）为中心居中，限制在视口内
       const left = Math.max(
         margin,
         Math.min(
@@ -1752,13 +1753,21 @@ function attachSelectionBubble(win: any, reader?: any) {
           win.innerWidth - bubbleWidth - margin,
         ),
       );
-      const top = Math.max(
-        margin,
-        Math.min(
-          anchorRect.top + anchorRect.height / 2 - bubbleHeight / 2,
-          win.innerHeight - bubbleHeight - margin,
-        ),
-      );
+
+      // 垂直：优先显示在锚点正上方，上方空间不足则显示在正下方
+      let top = anchorRect.top - bubbleHeight - gap;
+      if (top < margin) {
+        top = anchorRect.bottom + gap;
+        if (top + bubbleHeight > win.innerHeight - margin) {
+          top = Math.max(
+            margin,
+            Math.min(
+              anchorRect.top,
+              win.innerHeight - bubbleHeight - margin,
+            ),
+          );
+        }
+      }
 
       bubbleEl.style.left = `${left}px`;
       bubbleEl.style.top = `${top}px`;
