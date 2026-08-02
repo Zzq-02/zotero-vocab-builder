@@ -13,9 +13,17 @@ const UI_TEXT: Record<UILanguage, Record<string, string>> = {
     "pref.help": "{name} 构建版本 {version} {time}",
     "about.title": "插件介绍",
     "about.body1":
-      "Vocabulary Builder 是一个面向 Zotero 阅读场景的生词助手：阅读文献时选中英文单词并按 Alt+A，即可将生词加入专属生词笔记，并自动补充翻译、释义、词性和音标。",
+      "Vocabulary Builder 是一个面向 Zotero 阅读场景的生词助手：阅读文献时选中英文单词并按 {shortcut}，即可将生词加入专属生词笔记，并自动补充翻译、释义、词性和音标。",
     "about.body2":
       "支持离线暂存、联网后重试翻译、自定义翻译 API、从笔记同步生词，以及导出到 CSV、TSV、JSON、Anki、Quizlet 和 Mochi。",
+    "shortcut.title": "快捷键",
+    "shortcut.addWord": "添加生词：",
+    "shortcut.placeholder": "点击此处后按下组合键",
+    "shortcut.reset": "重置为 Alt+A",
+    "shortcut.hint":
+      "点击输入框后按下新的组合键即可录制；支持 Ctrl、Alt、Shift、Meta 加字母、数字或 F1-F12。为避免干扰正常输入，快捷键必须包含 Ctrl、Alt 或 Meta 中的至少一个修饰键。按 Esc 可取消。",
+    "shortcut.saved": "快捷键已更新：{shortcut}",
+    "shortcut.invalid": "无效的快捷键：{shortcut}",
     "vocab.title": "生词",
     "vocab.open": "打开生词表",
     "vocab.quickPlaceholder": "输入单词...",
@@ -68,7 +76,7 @@ const UI_TEXT: Record<UILanguage, Record<string, string>> = {
       "感谢支持 Zotero Vocabulary Builder。如果这个插件帮助你提升了文献阅读效率，欢迎扫码赞赏支持作者继续维护。",
     "manual.title": "使用手册",
     "manual.item1.html":
-      "阅读 PDF 或笔记时选中英文单词，按 <code>Alt+A</code> 添加到生词表。",
+      "阅读 PDF 或笔记时选中英文单词，按 <code>{shortcut}</code> 添加到生词表。",
     "manual.item2.html": "点击“打开生词表”查看、编辑和确认已同步的生词笔记。",
     "manual.item3.html": "离线时会先保存为待处理；联网后插件会自动重试翻译。",
     "manual.item4.html":
@@ -107,9 +115,17 @@ const UI_TEXT: Record<UILanguage, Record<string, string>> = {
     "pref.help": "{name} Build {version} {time}",
     "about.title": "About",
     "about.body1":
-      "Vocabulary Builder helps you collect vocabulary while reading in Zotero. Select an English word and press Alt+A to save it into a dedicated vocabulary note with translation, definition, part of speech, and phonetic details.",
+      "Vocabulary Builder helps you collect vocabulary while reading in Zotero. Select an English word and press {shortcut} to save it into a dedicated vocabulary note with translation, definition, part of speech, and phonetic details.",
     "about.body2":
       "It supports offline queueing, automatic retry, custom translation APIs, note sync, and exports for CSV, TSV, JSON, Anki, Quizlet, and Mochi.",
+    "shortcut.title": "Shortcuts",
+    "shortcut.addWord": "Add word:",
+    "shortcut.placeholder": "Click here and press a combination",
+    "shortcut.reset": "Reset to Alt+A",
+    "shortcut.hint":
+      "Click the input and press a key combination to record it. Ctrl, Alt, Shift, Meta plus a letter, digit or F1-F12 are supported. The shortcut must include Ctrl, Alt or Meta to avoid interfering with typing. Press Esc to cancel.",
+    "shortcut.saved": "Shortcut updated: {shortcut}",
+    "shortcut.invalid": "Invalid shortcut: {shortcut}",
     "vocab.title": "Vocabulary",
     "vocab.open": "Open Vocabulary",
     "vocab.quickPlaceholder": "Enter word...",
@@ -166,7 +182,7 @@ const UI_TEXT: Record<UILanguage, Record<string, string>> = {
       "Thank you for supporting Zotero Vocabulary Builder. If this plugin helps your reading workflow, scan the reward code to support future maintenance.",
     "manual.title": "User Manual",
     "manual.item1.html":
-      "Select an English word in a PDF or note and press <code>Alt+A</code> to add it.",
+      "Select an English word in a PDF or note and press <code>{shortcut}</code> to add it.",
     "manual.item2.html":
       "Use “Open Vocabulary” to review, edit, and confirm the synced vocabulary note.",
     "manual.item3.html":

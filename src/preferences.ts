@@ -33,6 +33,12 @@ import {
   type UILanguage,
 } from "./ui-language";
 import { getPref, setPref } from "./utils/prefs";
+import {
+  DEFAULT_QUICK_ADD_SHORTCUT,
+  formatShortcutLabel,
+  isValidShortcut,
+  shortcutFromEvent,
+} from "./utils/shortcut";
 
 const NOTE_ID_PREF = `${config.prefsPrefix}.noteID`;
 const prefsGlobal = globalThis as any;
@@ -81,6 +87,7 @@ const state: {
   syncPending: boolean;
   apiName: APIProvider;
   uiLanguage: UILanguage;
+  quickAddShortcut: string;
   loadPromise: Promise<void> | null;
   initPromise: Promise<void> | null;
 } = {
@@ -90,6 +97,7 @@ const state: {
   syncPending: false,
   apiName: "youdao",
   uiLanguage: DEFAULT_UI_LANGUAGE,
+  quickAddShortcut: DEFAULT_QUICK_ADD_SHORTCUT,
   loadPromise: null,
   initPromise: null,
 };
@@ -101,6 +109,8 @@ function normalizeAPIProvider(value: string): APIProvider {
 function loadSettingsFromPrefs() {
   state.apiName = normalizeAPIProvider(getPref("apiProvider") || "youdao");
   state.uiLanguage = normalizeUILanguage(getPref("uiLanguage") || "zh-CN");
+  state.quickAddShortcut =
+    getPref("quickAddShortcut") || DEFAULT_QUICK_ADD_SHORTCUT;
 }
 
 function readStoredNoteID(): number | null {
@@ -848,6 +858,9 @@ function getLocaleVars() {
     name: help?.getAttribute("data-build-name") || config.addonName,
     version: help?.getAttribute("data-build-version") || version,
     time: help?.getAttribute("data-build-time") || "",
+    shortcut: formatShortcutLabel(
+      getPref("quickAddShortcut") || DEFAULT_QUICK_ADD_SHORTCUT,
+    ),
   };
 }
 
@@ -858,6 +871,11 @@ function applyLanguage() {
   const emailBox = doc.getElementById("vb-feedback-email");
   if (emailBox) {
     emailBox.textContent = FEEDBACK_EMAIL;
+  }
+
+  const shortcutInput = doc.getElementById("vb-shortcut-input") as any;
+  if (shortcutInput) {
+    shortcutInput.value = formatShortcutLabel(state.quickAddShortcut);
   }
 
   refreshWordCount();
@@ -884,7 +902,85 @@ async function notifyMainAddon() {
   } catch (e) {}
 }
 
+function bindShortcutControls() {
+  const doc = getPrefsDocument();
+  const input = doc.getElementById("vb-shortcut-input") as any;
+  if (!input) return;
+
+  input.value = formatShortcutLabel(state.quickAddShortcut);
+
+  const commitShortcut = (rawValue: string) => {
+    const normalized = rawValue.trim().toLowerCase().replace(/\s+/g, "");
+    if (!isValidShortcut(normalized)) {
+      notify(
+        t(state.uiLanguage, "shortcut.invalid", { shortcut: rawValue }),
+        "error",
+      );
+      input.value = formatShortcutLabel(state.quickAddShortcut);
+      return;
+    }
+    if (normalized === state.quickAddShortcut) {
+      input.value = formatShortcutLabel(normalized);
+      return;
+    }
+    state.quickAddShortcut = normalized;
+    setPref("quickAddShortcut", normalized);
+    input.value = formatShortcutLabel(normalized);
+    notify(
+      t(state.uiLanguage, "shortcut.saved", {
+        shortcut: formatShortcutLabel(normalized),
+      }),
+      "success",
+    );
+    applyLanguage();
+    void notifyMainAddon();
+  };
+
+  // 录制模式：点击输入框后按下组合键即保存；其他按键放行以便手动输入
+  bindEventOnce(input, "ShortcutKeydown", "keydown", (e: any) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      input.value = formatShortcutLabel(state.quickAddShortcut);
+      input.blur();
+      return;
+    }
+    const value = shortcutFromEvent(e);
+    if (value) {
+      e.preventDefault();
+      e.stopPropagation();
+      commitShortcut(value);
+    }
+  });
+
+  // 聚焦时全选，便于录制或直接输入覆盖
+  bindEventOnce(input, "ShortcutFocus", "focus", () => {
+    try {
+      input.select();
+    } catch (ex) {}
+  });
+
+  // 失焦时：存在未提交的手动输入则交给随后的 change 提交，否则恢复保存值
+  bindEventOnce(input, "ShortcutBlur", "blur", () => {
+    if (
+      input.value.trim() &&
+      input.value !== formatShortcutLabel(state.quickAddShortcut)
+    ) {
+      return;
+    }
+    input.value = formatShortcutLabel(state.quickAddShortcut);
+  });
+
+  // 支持手动输入（Firefox 中 change 在 blur 之后触发）
+  bindEventOnce(input, "ShortcutChange", "change", () => {
+    if (input.value.trim()) commitShortcut(input.value);
+    else input.value = formatShortcutLabel(state.quickAddShortcut);
+  });
+}
+
 function bindControls() {
+  bindShortcutControls();
+
   const input = getPrefsDocument().getElementById("vb-quick-input") as any;
   bindEventOnce(input, "QuickAddEnter", "keydown", (e: any) => {
     if (e.key === "Enter") void quickAddWord();
@@ -1006,6 +1102,20 @@ const prefsController = {
   },
   closeDonationQr() {
     setDonationOverlayVisible(false);
+  },
+  resetShortcut() {
+    state.quickAddShortcut = DEFAULT_QUICK_ADD_SHORTCUT;
+    setPref("quickAddShortcut", DEFAULT_QUICK_ADD_SHORTCUT);
+    const input = getPrefsDocument().getElementById("vb-shortcut-input") as any;
+    if (input) input.value = formatShortcutLabel(DEFAULT_QUICK_ADD_SHORTCUT);
+    notify(
+      t(state.uiLanguage, "shortcut.saved", {
+        shortcut: formatShortcutLabel(DEFAULT_QUICK_ADD_SHORTCUT),
+      }),
+      "success",
+    );
+    applyLanguage();
+    void notifyMainAddon();
   },
 };
 

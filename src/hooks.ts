@@ -33,6 +33,11 @@ import {
   type UILanguage,
 } from "./ui-language";
 import { getPref, setPref } from "./utils/prefs";
+import {
+  DEFAULT_QUICK_ADD_SHORTCUT,
+  formatShortcutLabel,
+  matchesShortcut,
+} from "./utils/shortcut";
 
 const NOTE_ID_PREF = `${config.prefsPrefix}.noteID`;
 const PREF_PANE_SRC = `chrome://${config.addonRef}/content/preferences.xhtml`;
@@ -61,7 +66,7 @@ let _syncBusy = false;
 let _syncPending = false;
 let _apiName = "youdao";
 let _uiLanguage: UILanguage = DEFAULT_UI_LANGUAGE;
-let _readerSeen: Record<string, boolean> = {};
+let _quickAddShortcut: string = DEFAULT_QUICK_ADD_SHORTCUT;
 let _prefPaneID: string | null = null;
 let _notifierID: string | null = null;
 let _noteRefreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -76,6 +81,7 @@ function normalizeAPIProvider(value: string): APIProvider {
 function loadSettingsFromPrefs() {
   _apiName = normalizeAPIProvider(getPref("apiProvider") || "youdao");
   _uiLanguage = normalizeUILanguage(getPref("uiLanguage") || "zh-CN");
+  _quickAddShortcut = getPref("quickAddShortcut") || DEFAULT_QUICK_ADD_SHORTCUT;
 }
 
 async function registerPrefsPane() {
@@ -916,6 +922,9 @@ function getDocLocaleVars(doc: Document) {
     name: help?.getAttribute("data-build-name") || config.addonName,
     version: help?.getAttribute("data-build-version") || version,
     time: help?.getAttribute("data-build-time") || "",
+    shortcut: formatShortcutLabel(
+      getPref("quickAddShortcut") || DEFAULT_QUICK_ADD_SHORTCUT,
+    ),
   };
 }
 
@@ -1541,13 +1550,7 @@ function attachReaderKeys(win: any, reader?: any) {
   win._vbAttached = true;
 
   win.addEventListener("keydown", (e: any) => {
-    if (
-      e.altKey &&
-      !e.ctrlKey &&
-      !e.metaKey &&
-      e.key.toLowerCase() === "a" &&
-      !e.isComposing
-    ) {
+    if (matchesShortcut(e, _quickAddShortcut)) {
       let text = "";
       if (reader) text = getReaderSelection(reader);
       if (!text) {
@@ -1561,11 +1564,11 @@ function attachReaderKeys(win: any, reader?: any) {
 }
 
 async function handleAltA(e: any, text: string, reader?: any) {
-  e.preventDefault();
-  e.stopPropagation();
-
   const selectedText = text.trim();
   if (!selectedText) return;
+
+  e.preventDefault();
+  e.stopPropagation();
 
   const word = cleanWord(selectedText);
   if (!word) return;
@@ -1594,8 +1597,10 @@ function pollReaders() {
       const reader = entry?.tabID
         ? Zotero.Reader.getByTabID(entry.tabID)
         : entry;
-      if (!reader || _readerSeen[reader.tabID]) continue;
+      if (!reader) continue;
 
+      // attachReaderKeys 自身按 window 幂等防重（_vbAttached），
+      // 因此这里每次轮询都可安全调用；iframe 重建后新 window 会被重新绑定。
       const iframeWindow = reader._iframeWindow;
       if (iframeWindow) attachReaderKeys(iframeWindow, reader);
 
@@ -1606,8 +1611,6 @@ function pollReaders() {
           attachReaderKeys(primaryWindow, reader);
         }
       } catch (e) {}
-
-      _readerSeen[reader.tabID] = true;
     }
   } catch (e) {}
 }
@@ -1617,13 +1620,7 @@ function addMainWindowKeys(win: any) {
   win._vbMainAttached = true;
 
   win.addEventListener("keydown", (e: any) => {
-    if (
-      e.altKey &&
-      !e.ctrlKey &&
-      !e.metaKey &&
-      e.key.toLowerCase() === "a" &&
-      !e.isComposing
-    ) {
+    if (matchesShortcut(e, _quickAddShortcut)) {
       try {
         const tabID = win.Zotero_Tabs?.selectedID;
         if (!tabID) return;

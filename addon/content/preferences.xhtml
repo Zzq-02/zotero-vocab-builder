@@ -60,6 +60,37 @@
     </html:section>
 
     <html:section style="margin: 10px 0 16px 0">
+      <html:h3
+        id="vb-shortcut-title"
+        data-vb-i18n="shortcut.title"
+        style="margin: 0 0 8px 0"
+      ></html:h3>
+      <hbox align="center" style="margin: 8px 0">
+        <html:label
+          data-vb-i18n="shortcut.addWord"
+          style="margin-right: 8px; min-width: 110px"
+        ></html:label>
+        <html:input
+          id="vb-shortcut-input"
+          type="text"
+          style="flex: 1; min-width: 200px; font-family: monospace"
+          data-vb-i18n-placeholder="shortcut.placeholder"
+        />
+        <html:button
+          id="vb-shortcut-reset"
+          onclick="VocabBuilderPreferences.resetShortcut()"
+          style="margin-left: 8px; padding: 4px 12px; cursor: pointer"
+          data-vb-i18n="shortcut.reset"
+        ></html:button>
+      </hbox>
+      <html:div
+        id="vb-shortcut-hint"
+        data-vb-i18n="shortcut.hint"
+        style="margin: 6px 0; color: #666; font-size: 12px; line-height: 1.5"
+      ></html:div>
+    </html:section>
+
+    <html:section style="margin: 10px 0 16px 0">
       <html:h3 data-vb-i18n="vocab.title" style="margin: 0 0 8px 0"></html:h3>
       <html:div
         style="display: flex; gap: 8px; align-items: center; margin: 8px 0"

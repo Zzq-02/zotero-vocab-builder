@@ -8,5 +8,6 @@ pref("customApiDefPath", "");
 pref("customApiPosPath", "");
 pref("customApiPhonePath", "");
 pref("uiLanguage", "zh-CN");
+pref("quickAddShortcut", "alt+a");
 pref("exportFormat", "csv");
 pref("exportScope", "all");
