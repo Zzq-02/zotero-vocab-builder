@@ -39,7 +39,6 @@ import {
   matchesShortcut,
 } from "./utils/shortcut";
 import { lookupTranslation, storeTranslation } from "./translation-cache";
-import { selectionToSentence } from "./utils/sentence";
 
 const NOTE_ID_PREF = `${config.prefsPrefix}.noteID`;
 const PREF_PANE_SRC = `chrome://${config.addonRef}/content/preferences.xhtml`;
@@ -218,18 +217,19 @@ async function _fetchAPI(
 
 async function _translate(
   word: string,
-): Promise<{ trans: string; def: string; pos: string; phone: string }> {
+): Promise<{ trans: string; def: string; pos: string; phone: string; example: string }> {
   // 先查本地翻译缓存（离线词库），命中则直接返回
   const cached = await lookupTranslation(word);
   if (cached) return cached;
 
-  const result = { trans: "", def: "", pos: "", phone: "" };
+  const result = { trans: "", def: "", pos: "", phone: "", example: "" };
 
   const finish = async (finalResult: {
     trans: string;
     def: string;
     pos: string;
     phone: string;
+    example: string;
   }) => {
     if (finalResult.trans || finalResult.def) {
       void storeTranslation(word, finalResult);
@@ -245,6 +245,7 @@ async function _translate(
       defPath: getPref("customApiDefPath") || "",
       posPath: getPref("customApiPosPath") || "",
       phonePath: getPref("customApiPhonePath") || "",
+      examplePath: getPref("customApiExamplePath") || "",
     });
 
     if (!customConfig.url) return result;
@@ -277,6 +278,14 @@ async function _translate(
             if (!result.def && meaning.definitions?.[0]) {
               result.def = meaning.definitions[0].definition;
             }
+            if (!result.example) {
+              for (const definition of meaning.definitions || []) {
+                if (definition?.example) {
+                  result.example = String(definition.example).trim();
+                  break;
+                }
+              }
+            }
           }
           result.phone = data.phonetic || "";
         }
@@ -297,6 +306,15 @@ async function _translate(
         if (text && !translations.includes(text)) translations.push(text);
       });
       if (translations.length) result.trans = translations[0];
+      // 有道的响应若包含例句（example）则一并提取
+      const exampleNode = (
+        doc.querySelector("example") ||
+        doc.querySelector("sent") ||
+        doc.querySelector("sentence")
+      ) as any;
+      if (exampleNode?.textContent?.trim()) {
+        result.example = exampleNode.textContent.trim();
+      }
     } catch (e) {}
   }
 
@@ -312,6 +330,14 @@ async function _translate(
             if (!result.pos) result.pos = meaning.partOfSpeech || "";
             if (!result.def && meaning.definitions?.[0]) {
               result.def = meaning.definitions[0].definition;
+            }
+            if (!result.example) {
+              for (const definition of meaning.definitions || []) {
+                if (definition?.example) {
+                  result.example = String(definition.example).trim();
+                  break;
+                }
+              }
             }
           }
           result.phone = data.phonetic || "";
@@ -866,6 +892,8 @@ async function _backgroundSync(
       liveEntry.def = result.def;
       liveEntry.pos = result.pos;
       liveEntry.phone = result.phone;
+      // 语境优先使用翻译 API 返回的例句；已有内容（如缓存）则保留
+      if (result.example) liveEntry.ctx = result.example;
       liveEntry.status = result.trans || result.def ? "completed" : "failed";
 
       if (liveEntry.status === "failed") {
@@ -894,6 +922,7 @@ async function _backgroundSync(
         liveEntry.def = cached.def;
         liveEntry.pos = cached.pos;
         liveEntry.phone = cached.phone;
+        if (cached.example) liveEntry.ctx = cached.example;
         liveEntry.status = "completed";
         pwNotify(
           t(_uiLanguage, "notify.addedTranslated", { word: cleaned }),
@@ -938,6 +967,7 @@ function _retryPending() {
       liveEntry.def = result.def || liveEntry.def;
       liveEntry.pos = result.pos || liveEntry.pos;
       liveEntry.phone = result.phone || liveEntry.phone;
+      if (result.example) liveEntry.ctx = result.example;
       liveEntry.status = result.trans || result.def ? "completed" : liveEntry.status;
       await _doSyncNoteSafe();
     });
@@ -1592,7 +1622,7 @@ function attachReaderKeys(win: any, reader?: any) {
           text = win.getSelection()?.toString()?.trim() || "";
         } catch (ex) {}
       }
-      if (text) void handleAltA(e, text, reader, win);
+      if (text) void handleAltA(e, text, reader);
     }
   });
 
@@ -1662,7 +1692,6 @@ function attachSelectionBubble(win: any, reader?: any) {
           { preventDefault() {}, stopPropagation() {} },
           text,
           reader,
-          win,
         );
       }
     });
@@ -1739,13 +1768,7 @@ function attachSelectionBubble(win: any, reader?: any) {
   );
 }
 
-async function handleAltA(
-  e: any,
-  text: string,
-  reader?: any,
-  win?: any,
-  sentenceOverride?: string,
-) {
+async function handleAltA(e: any, text: string, reader?: any) {
   const selectedText = text.trim();
   if (!selectedText) return;
 
@@ -1755,13 +1778,9 @@ async function handleAltA(
   const word = cleanWord(selectedText);
   if (!word) return;
 
-  // 优先使用调用方缓存好的例句（气泡点击时选区可能已被清除），
-  // 否则从阅读器 DOM 提取包含选中词的完整句子，失败则回退到选区文本
-  const ctx =
-    sentenceOverride ||
-    (win ? selectionToSentence(win) || selectedText : selectedText);
+  // 语境（例句）不再从阅读器 DOM 提取，改由翻译 API 返回后填充
   const source = captureReaderSourceContext(reader);
-  const entry = await addWord(word, ctx, buildReaderSourceLink(source));
+  const entry = await addWord(word, "", buildReaderSourceLink(source));
   if (!entry) {
     pwNotify(t(_uiLanguage, "notify.duplicate", { word }), "error");
     return;
@@ -1815,7 +1834,7 @@ function addMainWindowKeys(win: any) {
         if (!reader) return;
         const text = getReaderSelection(reader);
         if (text) {
-          void handleAltA(e, text, reader, reader._iframeWindow);
+          void handleAltA(e, text, reader);
         }
       } catch (ex) {}
     }

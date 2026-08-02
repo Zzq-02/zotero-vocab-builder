@@ -7,6 +7,7 @@ pref("customApiTransPath", "");
 pref("customApiDefPath", "");
 pref("customApiPosPath", "");
 pref("customApiPhonePath", "");
+pref("customApiExamplePath", "");
 pref("uiLanguage", "zh-CN");
 pref("quickAddShortcut", "alt+a");
 pref("translationCachePath", "");

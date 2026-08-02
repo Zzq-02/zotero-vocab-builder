@@ -8,7 +8,7 @@ Collect unfamiliar English words while reading in Zotero, and store them in a de
 
 - Add a word while reading a PDF, EPUB, or note in Zotero — via a floating button that appears when you select text, or via a keyboard shortcut (default `Alt+A`, customizable in Settings).
 - Store every collected word in one dedicated Zotero note instead of a separate database.
-- Auto-extract the full sentence containing the selected word as context, and save the source link for each word.
+- Show an example sentence from the translation API as context when the API provides one (free dictionary and custom APIs support this; youdao usually does not).
 - Jump back from the vocabulary note to the original selection position in the PDF.
 - Fill in translation, definition, part of speech, and phonetic data automatically.
 - Show the phonetic transcription right next to each word in the vocabulary note.

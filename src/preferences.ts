@@ -50,6 +50,7 @@ const DEFAULT_TEXT_PREFS: Partial<
     | "customApiDefPath"
     | "customApiPosPath"
     | "customApiPhonePath"
+    | "customApiExamplePath"
     | "exportFormat"
     | "exportScope"
     | "translationCachePath",
@@ -234,8 +235,8 @@ async function fetchAPI(
 
 async function translate(
   word: string,
-): Promise<{ trans: string; def: string; pos: string; phone: string }> {
-  const result = { trans: "", def: "", pos: "", phone: "" };
+): Promise<{ trans: string; def: string; pos: string; phone: string; example: string }> {
+  const result = { trans: "", def: "", pos: "", phone: "", example: "" };
 
   if (state.apiName === "custom") {
     const customConfig = parseCustomAPIConfig({
@@ -245,6 +246,7 @@ async function translate(
       defPath: getPref("customApiDefPath") || "",
       posPath: getPref("customApiPosPath") || "",
       phonePath: getPref("customApiPhonePath") || "",
+      examplePath: getPref("customApiExamplePath") || "",
     });
 
     if (!customConfig.url) return result;
@@ -277,6 +279,14 @@ async function translate(
             if (!result.def && meaning.definitions?.[0]) {
               result.def = meaning.definitions[0].definition;
             }
+            if (!result.example) {
+              for (const definition of meaning.definitions || []) {
+                if (definition?.example) {
+                  result.example = String(definition.example).trim();
+                  break;
+                }
+              }
+            }
           }
           result.phone = data.phonetic || "";
         }
@@ -297,6 +307,14 @@ async function translate(
         if (text && !translations.includes(text)) translations.push(text);
       });
       if (translations.length) result.trans = translations[0];
+      const exampleNode = (
+        doc.querySelector("example") ||
+        doc.querySelector("sent") ||
+        doc.querySelector("sentence")
+      ) as any;
+      if (exampleNode?.textContent?.trim()) {
+        result.example = exampleNode.textContent.trim();
+      }
     } catch (e) {}
   }
 
@@ -312,6 +330,14 @@ async function translate(
             if (!result.pos) result.pos = meaning.partOfSpeech || "";
             if (!result.def && meaning.definitions?.[0]) {
               result.def = meaning.definitions[0].definition;
+            }
+            if (!result.example) {
+              for (const definition of meaning.definitions || []) {
+                if (definition?.example) {
+                  result.example = String(definition.example).trim();
+                  break;
+                }
+              }
             }
           }
           result.phone = data.phonetic || "";
@@ -713,6 +739,7 @@ function bindTextPref(
     | "customApiDefPath"
     | "customApiPosPath"
     | "customApiPhonePath"
+    | "customApiExamplePath"
     | "exportFormat"
     | "exportScope"
     | "translationCachePath",
@@ -1032,6 +1059,7 @@ function bindControls() {
   bindTextPref("vb-custom-api-def", "customApiDefPath");
   bindTextPref("vb-custom-api-pos", "customApiPosPath");
   bindTextPref("vb-custom-api-phone", "customApiPhonePath");
+  bindTextPref("vb-custom-api-example", "customApiExamplePath");
   bindTextPref("vb-cache-path", "translationCachePath");
   bindTextPref("vb-export-format", "exportFormat");
   bindTextPref("vb-export-scope", "exportScope");

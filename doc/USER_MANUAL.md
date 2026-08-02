@@ -62,7 +62,7 @@ Zotero 生词笔记（原 `Vocabulary Builder`）用于在 Zotero 阅读文献�
 新增生词后，插件会尽量保留以下信息：
 
 - 单词本身
-- 选取单词所在的完整原文例句（自动摘录）
+- 翻译 API 返回的例句（如果有），没有则不显示语境
 - 来源超链接
 - PDF 中的原始选取位置
 - 翻译、英文释义、词性、音标
@@ -126,6 +126,8 @@ Zotero 生词笔记（原 `Vocabulary Builder`）用于在 Zotero 阅读文献�
 - `data.translation`
 - `result.definitions.0.text`
 - `items[0].phonetic`
+
+自定义 API 还可以配置"例句路径"（可选）：从返回数据中提取英文例句作为生词笔记的"语境"字段，例如 `data.example` 或 `items[0].example`。留空则不显示语境。
 
 ## 11. 导出生词
 

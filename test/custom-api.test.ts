@@ -12,10 +12,7 @@ describe("custom-api", function () {
       "ice cream",
     );
 
-    assert.equal(
-      url,
-      "https://example.com?q=ice%20cream&raw=ice cream",
-    );
+    assert.equal(url, "https://example.com?q=ice%20cream&raw=ice cream");
   });
 
   it("parses custom headers and trims field paths", function () {
@@ -26,6 +23,7 @@ describe("custom-api", function () {
       defPath: " data.definition ",
       posPath: " data.pos ",
       phonePath: " data.phone ",
+      examplePath: " data.example ",
     });
 
     assert.equal(config.url, "https://example.com?q={word}");
@@ -34,6 +32,7 @@ describe("custom-api", function () {
       "X-Test": "1",
     });
     assert.equal(config.transPath, "data.translation");
+    assert.equal(config.examplePath, "data.example");
   });
 
   it("extracts values from nested JSON paths", function () {
@@ -62,5 +61,41 @@ describe("custom-api", function () {
     assert.equal(fields.def, "frozen water");
     assert.equal(fields.pos, "noun");
     assert.equal(fields.phone, "ais");
+  });
+
+  it("extracts the example sentence from a custom path", function () {
+    const fields = extractCustomAPIFields(
+      {
+        data: {
+          translation: "ice",
+          example: "Ice melts in the sun.",
+        },
+      },
+      {
+        transPath: "data.translation",
+        defPath: "",
+        posPath: "",
+        phonePath: "",
+        examplePath: "data.example",
+      },
+    );
+
+    assert.equal(fields.trans, "ice");
+    assert.equal(fields.example, "Ice melts in the sun.");
+  });
+
+  it("returns an empty example when the path is missing", function () {
+    const fields = extractCustomAPIFields(
+      { data: { translation: "ice" } },
+      {
+        transPath: "data.translation",
+        defPath: "",
+        posPath: "",
+        phonePath: "",
+        examplePath: "data.example",
+      },
+    );
+
+    assert.equal(fields.example, "");
   });
 });

@@ -15,6 +15,7 @@ export interface TranslationResult {
   def: string;
   pos: string;
   phone: string;
+  example: string;
 }
 
 const PLUGIN_DIR_NAME = "vocab-builder";
@@ -87,6 +88,7 @@ async function readCacheFromDisk(): Promise<Map<string, TranslationResult>> {
         def: String(entry.def || ""),
         pos: String(entry.pos || ""),
         phone: String(entry.phone || ""),
+        example: String(entry.example || ""),
       });
     }
     return result;
@@ -143,6 +145,7 @@ export function storeTranslation(
         def: result.def || "",
         pos: result.pos || "",
         phone: result.phone || "",
+        example: result.example || "",
       });
       await writeCacheToDisk();
     })

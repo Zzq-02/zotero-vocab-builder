@@ -16,6 +16,7 @@ declare namespace _ZoteroTypes {
       "customApiDefPath": string;
       "customApiPosPath": string;
       "customApiPhonePath": string;
+      "customApiExamplePath": string;
       "uiLanguage": string;
       "quickAddShortcut": string;
       "translationCachePath": string;

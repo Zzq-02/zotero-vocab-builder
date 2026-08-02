@@ -5,6 +5,7 @@ export interface CustomAPIConfig {
   defPath: string;
   posPath: string;
   phonePath: string;
+  examplePath: string;
 }
 
 export interface CustomAPIParsedConfig {
@@ -14,6 +15,7 @@ export interface CustomAPIParsedConfig {
   defPath: string;
   posPath: string;
   phonePath: string;
+  examplePath: string;
 }
 
 export function parseCustomAPIConfig(
@@ -26,6 +28,7 @@ export function parseCustomAPIConfig(
     defPath: (config.defPath || "").trim(),
     posPath: (config.posPath || "").trim(),
     phonePath: (config.phonePath || "").trim(),
+    examplePath: (config.examplePath || "").trim(),
   };
 }
 
@@ -40,7 +43,7 @@ export function extractCustomAPIFields(
   payload: unknown,
   config: Pick<
     CustomAPIParsedConfig,
-    "transPath" | "defPath" | "posPath" | "phonePath"
+    "transPath" | "defPath" | "posPath" | "phonePath" | "examplePath"
   >,
 ) {
   return {
@@ -48,6 +51,7 @@ export function extractCustomAPIFields(
     def: stringifyPathValue(readPath(payload, config.defPath)),
     pos: stringifyPathValue(readPath(payload, config.posPath)),
     phone: stringifyPathValue(readPath(payload, config.phonePath)),
+    example: stringifyPathValue(readPath(payload, config.examplePath)),
   };
 }
 
