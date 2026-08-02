@@ -54,7 +54,6 @@ const DEFAULT_TEXT_PREFS: Partial<
     | "exportFormat"
     | "exportScope"
     | "translationCachePath"
-    | "highlightWordColor"
     | "jumpHighlightColor",
     string
   >
@@ -745,7 +744,6 @@ function bindTextPref(
     | "exportFormat"
     | "exportScope"
     | "translationCachePath"
-    | "highlightWordColor"
     | "jumpHighlightColor",
 ) {
   const element = getPrefsDocument().getElementById(id) as any;
@@ -1086,19 +1084,8 @@ function bindControls() {
     });
   }
 
-  const highlightToggle = getPrefsDocument().getElementById(
-    "vb-highlight-enabled",
-  ) as any;
-  if (highlightToggle) {
-    highlightToggle.checked = getPref("highlightReadWordsEnabled") !== false;
-    bindEventOnce(highlightToggle, "HighlightEnabled", "change", () => {
-      setPref("highlightReadWordsEnabled", highlightToggle.checked);
-    });
-  }
-
   bindTextPref("vb-export-format", "exportFormat");
   bindTextPref("vb-export-scope", "exportScope");
-  bindTextPref("vb-highlight-word-color", "highlightWordColor");
   bindTextPref("vb-highlight-jump-color", "jumpHighlightColor");
 }
 

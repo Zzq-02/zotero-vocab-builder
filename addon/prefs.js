@@ -11,8 +11,6 @@ pref("customApiExamplePath", "");
 pref("uiLanguage", "zh-CN");
 pref("quickAddShortcut", "alt+a");
 pref("selectionBubbleEnabled", true);
-pref("highlightReadWordsEnabled", true);
-pref("highlightWordColor", "rgba(255,235,59,.45)");
 pref("jumpHighlightColor", "");
 pref("translationCachePath", "");
 pref("translationCacheEnabled", true);

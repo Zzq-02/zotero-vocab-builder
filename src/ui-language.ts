@@ -29,8 +29,6 @@ const UI_TEXT: Record<UILanguage, Record<string, string>> = {
     "vocab.quickPlaceholder": "输入单词...",
     "vocab.quickAdd": "+ 添加",
     "vocab.sync": "从生词笔记导入",
-    "highlight.enabled": "在 PDF 中高亮已收录的生词",
-    "highlight.wordColor": "生词高亮颜色：",
     "highlight.jumpColor": "跳转高亮颜色：",
     "highlight.jumpPlaceholder": "留空使用 Zotero 默认颜色（如 #ffeb3b）",
     "vocab.batchPlaceholder": "批量添加：每行一个单词，或使用逗号、分号分隔",
@@ -113,7 +111,6 @@ const UI_TEXT: Record<UILanguage, Record<string, string>> = {
     "notify.retrying": "正在重试 {count} 个待处理生词",
     "notify.batchAdded": "已添加 {added} 个，跳过 {skipped} 个（重复或无效）",
     "notify.feedbackEmailCopied": "反馈邮箱已复制。",
-    "notify.hlFailed": "生词高亮未生效：识别到 {words} 个生词，但 PDF 文本层中未匹配到（textSpans={spans}）。请把此提示反馈给开发者。",
     "menu.vocab": "生词表 ({count})",
     "menu.quickAdd": "+ 快速添加单词",
     "menu.enterWord": "输入单词：",
@@ -148,8 +145,6 @@ const UI_TEXT: Record<UILanguage, Record<string, string>> = {
     "vocab.quickPlaceholder": "Enter word...",
     "vocab.quickAdd": "+ Add",
     "vocab.sync": "Import From Vocabulary Note",
-    "highlight.enabled": "Highlight known words in PDFs",
-    "highlight.wordColor": "Word highlight color:",
     "highlight.jumpColor": "Jump highlight color:",
     "highlight.jumpPlaceholder": "Leave empty for Zotero default (e.g. #ffeb3b)",
     "vocab.batchPlaceholder":
@@ -241,8 +236,6 @@ const UI_TEXT: Record<UILanguage, Record<string, string>> = {
     "notify.batchAdded":
       "Added {added}, skipped {skipped} (duplicate or invalid)",
     "notify.feedbackEmailCopied": "Feedback email copied.",
-    "notify.hlFailed":
-      "Word highlight failed: {words} words found, but none matched in the PDF text layer (textSpans={spans}). Please report this message.",
     "menu.vocab": "Vocabulary ({count})",
     "menu.quickAdd": "+ Quick Add Word",
     "menu.enterWord": "Enter word:",

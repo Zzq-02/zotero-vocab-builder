@@ -1949,22 +1949,9 @@ function pwNotify(msg: string, tone: NotificationTone = "info") {
   showNotification(msg, tone);
 }
 
-/** 当前 PDF 附件中已收录的生词（按来源链接里的附件 key 匹配） */
-function getKnownWordsForAttachment(reader: any): string[] {
-  const itemKey = reader?._item?.key;
-  if (!itemKey) return [];
 
-  const words: string[] = [];
-  for (const entry of _ws) {
-    if (!entry.src) continue;
-    const match = String(entry.src).match(/\/items\/([A-Z0-9]{8})(?:\?|$)/i);
-    if (match && match[1] === itemKey) {
-      const cleaned = cleanWord(entry.word);
-      if (cleaned) words.push(cleaned);
-    }
-  }
-  return words;
-}
+
+
 
 /** 校验并规范化颜色值（仅允许 CSS 颜色字符，防止注入） */
 function sanitizeColor(value: string): string {
@@ -1974,158 +1961,30 @@ function sanitizeColor(value: string): string {
 }
 
 /**
- * 在 span 的文本节点内精确高亮目标词：把该词拆分到 <mark class="vb-hl-word">，
- * 只给词本身加背景色，不影响 span 其余文本。
+ * 注入跳转高亮颜色覆盖样式（点击来源链接后 pdf.js 查找高亮的颜色）。
+ * 每个文档只注入一次；跳转色留空时不注入（使用 Zotero 默认色）。
  */
-function highlightTokenInSpan(span: Element, token: string): boolean {
+function injectJumpHighlightStyle(reader: any): void {
   try {
-    const doc = span.ownerDocument;
-    if (!doc || !token) return false;
+    const jumpColor = sanitizeColor(getPref("jumpHighlightColor"));
+    if (!jumpColor) return;
 
-    const walker = doc.createTreeWalker(span, NodeFilter.SHOW_TEXT);
-    const nodes: Text[] = [];
-    while (walker.nextNode()) nodes.push(walker.currentNode as Text);
-
-    const needle = token.toLowerCase();
-    for (const node of nodes) {
-      const text = node.textContent || "";
-      const idx = text.toLowerCase().indexOf(needle);
-      if (idx < 0) continue;
-
-      const mark = doc.createElement("mark");
-      mark.className = "vb-hl-word";
-      mark.textContent = text.slice(idx, idx + token.length);
-      const before = doc.createTextNode(text.slice(0, idx));
-      const after = doc.createTextNode(text.slice(idx + token.length));
-      const parent = node.parentNode;
-      if (!parent) continue;
-      parent.replaceChild(after, node);
-      parent.insertBefore(mark, after);
-      parent.insertBefore(before, mark);
-      return true;
-    }
-    return false;
-  } catch (e) {
-    return false;
-  }
-}
-
-/**
- * 生词高亮回看：在 PDF 文本层中找到已收录的生词并加高亮。
- * 幂等（已高亮的 span 跳过）；翻页后新渲染的 span 会在下次轮询补高亮。
- */
-/** 高亮诊断弹窗的冷却时间戳（避免刷屏） */
-let _lastHlWarnAt = 0;
-
-function highlightKnownWordsInReader(reader: any): void {
-  try {
-    if (getPref("highlightReadWordsEnabled") === false) return;
-
-    const words = getKnownWordsForAttachment(reader);
-    // 候选窗口覆盖 Zotero 7/8/9：
-    // - Zotero 7/8：_iframeWindow 与 _internalReader._primaryView._iframeWindow
-    // - Zotero 9：移除了 _internalReader，改为 _primaryView._iframeWindow
     const candidateWindows = [
       reader?._iframeWindow,
       reader?._primaryView?._iframeWindow,
       (reader?._internalReader as any)?._primaryView?._iframeWindow,
     ];
-
-    let totalSpans = 0;
-    let totalMatched = 0;
     for (const win of candidateWindows) {
       if (!win) continue;
       const doc = win.document;
-      if (!doc) continue;
-
-      // 高亮样式（每个文档注入一次）：生词色与跳转查找色均可配置
-      if (!doc._vbHlStyleInjected) {
-        const wordColor =
-          sanitizeColor(getPref("highlightWordColor")) ||
-          "rgba(255,235,59,.45)";
-        const jumpColor = sanitizeColor(getPref("jumpHighlightColor"));
-        let css = `.vb-hl-word{background-color:${wordColor}!important;border-radius:2px}`;
-        if (jumpColor) {
-          css += `.textLayer .highlight,.textLayer .highlight.selected{background-color:${jumpColor}!important}`;
-        }
-        const style = doc.createElement("style");
-        style.textContent = css;
-        (doc.head || doc.documentElement).appendChild(style);
-        doc._vbHlStyleInjected = true;
-      }
-
-      const wordSet = new Set(words);
-      // 只处理 span（文本项）；不要匹配 .textLayer 容器 div，
-      // 否则会对整页文本做拆分，破坏 PDF.js 的文本层结构
-      const spans = Array.from<Element>(
-        doc.querySelectorAll(".textLayer span") as NodeListOf<Element>,
-      );
-      totalSpans += spans.length;
-      let count = 0;
-      spans.forEach((span: Element, index: number) => {
-        // 已精确高亮过的 span（或其内部 mark）跳过
-        if (
-          span.classList.contains("vb-hl-word") ||
-          span.querySelector(".vb-hl-word")
-        ) {
-          return;
-        }
-        // 防御：过长的 span（疑似容器/整段）不拆分
-        const rawText = (span.textContent || "").trim();
-        if (rawText.length > 1000) return;
-        const cleaned = cleanWord(rawText);
-        if (!cleaned) return;
-        // 整 span 精确匹配优先；span 含多个词时按词分词匹配
-        //（Zotero 9 的文本层 span 粒度可能是文本项而非单词）
-        const tokens = cleaned.split(" ");
-        const matchedToken = wordSet.has(cleaned)
-          ? cleaned
-          : tokens.find((token) => wordSet.has(token));
-        if (matchedToken) {
-          // 只高亮单词本身（拆分文本节点，给词加背景，不动其余文本）；
-          // 拆分失败时若整 span 就是目标词，退回整 span 高亮
-          if (highlightTokenInSpan(span, matchedToken)) {
-            count++;
-          } else if (wordSet.has(cleaned)) {
-            span.classList.add("vb-hl-word");
-            count++;
-          }
-          return;
-        }
-        // 跨 span 匹配：与后续最多 2 个 span 拼接，处理文本项分割
-        // 与行尾断词（cellu- + lar -> cellular），命中则高亮词首 span
-        let combined = cleaned;
-        for (let j = 1; j <= 2 && index + j < spans.length; j++) {
-          combined += cleanWord((spans[index + j].textContent || "").trim());
-          if (
-            wordSet.has(combined) ||
-            wordSet.has(combined.replace(/-/g, ""))
-          ) {
-            span.classList.add("vb-hl-word");
-            count++;
-            return;
-          }
-        }
-      });
-      totalMatched += count;
-      Zotero.debug(
-        `VocabBuilder: highlight scan itemKey=${String(reader?._item?.key || "")} words=${words.length} textSpans=${spans.length} matched=${count}`,
-      );
-    }
-
-    // 有生词但一个都没匹配上：弹窗提示诊断信息（15 秒冷却）
-    if (words.length > 0 && totalMatched === 0) {
-      const now = Date.now();
-      if (now - _lastHlWarnAt > 15000) {
-        _lastHlWarnAt = now;
-        pwNotify(
-          t(_uiLanguage, "notify.hlFailed", {
-            words: words.length,
-            spans: totalSpans,
-          }),
-          "error",
-        );
-      }
+      if (!doc || doc._vbJumpStyleInjected) continue;
+      const style = doc.createElement("style");
+      style.textContent =
+        ".textLayer .highlight,.textLayer .highlight.selected{background-color:" +
+        jumpColor +
+        "!important}";
+      (doc.head || doc.documentElement).appendChild(style);
+      doc._vbJumpStyleInjected = true;
     }
   } catch (e) {}
 }
@@ -2157,8 +2016,8 @@ function pollReaders() {
         }
       } catch (e) {}
 
-      // 生词高亮回看（幂等；翻页后新渲染的 span 在下次轮询补高亮）
-      highlightKnownWordsInReader(reader);
+      // 跳转高亮颜色（可选，留空用 Zotero 默认）
+      injectJumpHighlightStyle(reader);
     }
   } catch (e) {}
 }

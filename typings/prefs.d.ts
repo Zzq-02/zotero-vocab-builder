@@ -20,8 +20,6 @@ declare namespace _ZoteroTypes {
       "uiLanguage": string;
       "quickAddShortcut": string;
       "selectionBubbleEnabled": boolean;
-      "highlightReadWordsEnabled": boolean;
-      "highlightWordColor": string;
       "jumpHighlightColor": string;
       "translationCachePath": string;
       "translationCacheEnabled": boolean;
