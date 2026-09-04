@@ -83,6 +83,24 @@
           data-vb-i18n="shortcut.reset"
         ></html:button>
       </hbox>
+      <hbox align="center" style="margin: 8px 0">
+        <html:label
+          data-vb-i18n="shortcut.retryLabel"
+          style="margin-right: 8px; min-width: 110px"
+        ></html:label>
+        <html:input
+          id="vb-retry-shortcut-input"
+          type="text"
+          style="flex: 1; min-width: 200px; font-family: monospace"
+          data-vb-i18n-placeholder="shortcut.placeholder"
+        />
+        <html:button
+          id="vb-retry-shortcut-reset"
+          onclick="VocabBuilderPreferences.resetShortcut('retry')"
+          style="margin-left: 8px; padding: 4px 12px; cursor: pointer"
+          data-vb-i18n="shortcut.reset"
+        ></html:button>
+      </hbox>
       <html:div
         id="vb-shortcut-hint"
         data-vb-i18n="shortcut.hint"

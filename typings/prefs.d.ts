@@ -19,6 +19,7 @@ declare namespace _ZoteroTypes {
       "customApiExamplePath": string;
       "uiLanguage": string;
       "quickAddShortcut": string;
+      "retryShortcut": string;
       "selectionBubbleEnabled": boolean;
       "jumpHighlightColor": string;
       "translationCachePath": string;

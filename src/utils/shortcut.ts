@@ -6,6 +6,7 @@
  */
 
 export const DEFAULT_QUICK_ADD_SHORTCUT = "alt+a";
+export const DEFAULT_RETRY_SHORTCUT = "alt+r";
 
 export interface ShortcutParts {
   ctrl: boolean;

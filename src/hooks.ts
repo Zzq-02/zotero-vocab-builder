@@ -35,6 +35,7 @@ import {
 import { getPref, setPref } from "./utils/prefs";
 import {
   DEFAULT_QUICK_ADD_SHORTCUT,
+  DEFAULT_RETRY_SHORTCUT,
   formatShortcutLabel,
   matchesShortcut,
 } from "./utils/shortcut";
@@ -68,6 +69,7 @@ let _syncPending = false;
 let _apiName = "youdao";
 let _uiLanguage: UILanguage = DEFAULT_UI_LANGUAGE;
 let _quickAddShortcut: string = DEFAULT_QUICK_ADD_SHORTCUT;
+let _retryShortcut: string = DEFAULT_RETRY_SHORTCUT;
 let _prefPaneID: string | null = null;
 let _notifierID: string | null = null;
 let _noteRefreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -83,6 +85,7 @@ function loadSettingsFromPrefs() {
   _apiName = normalizeAPIProvider(getPref("apiProvider") || "youdao");
   _uiLanguage = normalizeUILanguage(getPref("uiLanguage") || "zh-CN");
   _quickAddShortcut = getPref("quickAddShortcut") || DEFAULT_QUICK_ADD_SHORTCUT;
+  _retryShortcut = getPref("retryShortcut") || DEFAULT_RETRY_SHORTCUT;
 }
 
 async function registerPrefsPane() {
@@ -593,6 +596,7 @@ function refreshMenus() {
     count: currentWordCount(),
   });
   const quickAddLabel = t(_uiLanguage, "menu.quickAdd");
+  const retryLabel = t(_uiLanguage, "menu.retry");
 
   for (const win of Zotero.getMainWindows()) {
     try {
@@ -600,6 +604,8 @@ function refreshMenus() {
       if (vocabItem) vocabItem.setAttribute("label", vocabLabel);
       const addItem = win.document.getElementById("vb-menu-add");
       if (addItem) addItem.setAttribute("label", quickAddLabel);
+      const retryItem = win.document.getElementById("vb-menu-retry");
+      if (retryItem) retryItem.setAttribute("label", retryLabel);
     } catch (e) {}
   }
 }
@@ -981,6 +987,48 @@ function _retryPending() {
   }
 }
 
+/** 手动强制重试全部待翻译/失败的词条（不受自动重试 3 次上限限制） */
+function retryPendingAll() {
+  if (typeof navigator !== "undefined" && !navigator.onLine) {
+    pwNotify(t(_uiLanguage, "notify.needOnline"), "error");
+    return;
+  }
+
+  const pending = _ws.filter(
+    (entry) => entry.status === "pending" || entry.status === "failed",
+  );
+  if (!pending.length) {
+    pwNotify(t(_uiLanguage, "notify.retryNone"), "info");
+    return;
+  }
+
+  let retried = 0;
+  for (const entry of pending) {
+    entry.tries = 0;
+    const targetId = entry.id;
+    _translate(entry.word).then(async (result) => {
+      const latestNote = await ensureNote(false);
+      if (latestNote && !(await noteStillHasWord(latestNote, entry.word))) {
+        return;
+      }
+      const liveEntry = findLiveEntry(entry.word, targetId);
+      if (!liveEntry) return;
+      liveEntry.trans = result.trans || liveEntry.trans;
+      liveEntry.def = result.def || liveEntry.def;
+      liveEntry.pos = result.pos || liveEntry.pos;
+      liveEntry.phone = result.phone || liveEntry.phone;
+      if (result.example) liveEntry.ctx = result.example;
+      if (result.trans || result.def) {
+        liveEntry.status = "completed";
+      }
+      await _doSyncNoteSafe();
+    });
+    retried++;
+  }
+
+  pwNotify(t(_uiLanguage, "notify.retrying", { count: retried }));
+}
+
 function getDocLocaleVars(doc: Document) {
   const help = doc.getElementById("vb-pref-help");
   return {
@@ -1140,6 +1188,13 @@ function addMenu(win: any) {
       }
     });
     pop.appendChild(addItem);
+
+    const retryItem = doc.createXULElement("menuitem");
+    retryItem.setAttribute("id", "vb-menu-retry");
+    retryItem.addEventListener("command", () => {
+      retryPendingAll();
+    });
+    pop.appendChild(retryItem);
 
     refreshMenus();
   } catch (e) {
@@ -1626,6 +1681,10 @@ function attachReaderKeys(win: any, reader?: any) {
         } catch (ex) {}
       }
       if (text) void handleAltA(e, text, reader);
+    } else if (matchesShortcut(e, _retryShortcut)) {
+      e.preventDefault();
+      e.stopPropagation();
+      retryPendingAll();
     }
   });
 
@@ -2038,6 +2097,10 @@ function addMainWindowKeys(win: any) {
           void handleAltA(e, text, reader);
         }
       } catch (ex) {}
+    } else if (matchesShortcut(e, _retryShortcut)) {
+      e.preventDefault();
+      e.stopPropagation();
+      retryPendingAll();
     }
   });
 }

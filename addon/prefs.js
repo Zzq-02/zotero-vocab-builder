@@ -10,6 +10,7 @@ pref("customApiPhonePath", "");
 pref("customApiExamplePath", "");
 pref("uiLanguage", "zh-CN");
 pref("quickAddShortcut", "alt+a");
+pref("retryShortcut", "alt+r");
 pref("selectionBubbleEnabled", true);
 pref("jumpHighlightColor", "");
 pref("translationCachePath", "");

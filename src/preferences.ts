@@ -35,6 +35,7 @@ import {
 import { getPref, setPref } from "./utils/prefs";
 import {
   DEFAULT_QUICK_ADD_SHORTCUT,
+  DEFAULT_RETRY_SHORTCUT,
   formatShortcutLabel,
   isValidShortcut,
   shortcutFromEvent,
@@ -92,6 +93,7 @@ const state: {
   apiName: APIProvider;
   uiLanguage: UILanguage;
   quickAddShortcut: string;
+  retryShortcut: string;
   loadPromise: Promise<void> | null;
   initPromise: Promise<void> | null;
 } = {
@@ -102,6 +104,7 @@ const state: {
   apiName: "youdao",
   uiLanguage: DEFAULT_UI_LANGUAGE,
   quickAddShortcut: DEFAULT_QUICK_ADD_SHORTCUT,
+  retryShortcut: DEFAULT_RETRY_SHORTCUT,
   loadPromise: null,
   initPromise: null,
 };
@@ -115,6 +118,7 @@ function loadSettingsFromPrefs() {
   state.uiLanguage = normalizeUILanguage(getPref("uiLanguage") || "zh-CN");
   state.quickAddShortcut =
     getPref("quickAddShortcut") || DEFAULT_QUICK_ADD_SHORTCUT;
+  state.retryShortcut = getPref("retryShortcut") || DEFAULT_RETRY_SHORTCUT;
 }
 
 function readStoredNoteID(): number | null {
@@ -936,6 +940,12 @@ function applyLanguage() {
   if (shortcutInput) {
     shortcutInput.value = formatShortcutLabel(state.quickAddShortcut);
   }
+  const retryShortcutInput = doc.getElementById(
+    "vb-retry-shortcut-input",
+  ) as any;
+  if (retryShortcutInput) {
+    retryShortcutInput.value = formatShortcutLabel(state.retryShortcut);
+  }
 
   refreshWordCount();
   updateExportHint();
@@ -961,12 +971,25 @@ async function notifyMainAddon() {
   } catch (e) {}
 }
 
-function bindShortcutControls() {
+function bindShortcutControls(
+  inputId: string,
+  prefKey: "quickAddShortcut" | "retryShortcut",
+) {
   const doc = getPrefsDocument();
-  const input = doc.getElementById("vb-shortcut-input") as any;
+  const input = doc.getElementById(inputId) as any;
   if (!input) return;
 
-  input.value = formatShortcutLabel(state.quickAddShortcut);
+  const fallback = () =>
+    prefKey === "quickAddShortcut"
+      ? DEFAULT_QUICK_ADD_SHORTCUT
+      : DEFAULT_RETRY_SHORTCUT;
+  const current = () => getPref(prefKey) || fallback();
+  const setState = (value: string) => {
+    if (prefKey === "quickAddShortcut") state.quickAddShortcut = value;
+    else state.retryShortcut = value;
+  };
+
+  input.value = formatShortcutLabel(current());
 
   const commitShortcut = (rawValue: string) => {
     const normalized = rawValue.trim().toLowerCase().replace(/\s+/g, "");
@@ -975,15 +998,15 @@ function bindShortcutControls() {
         t(state.uiLanguage, "shortcut.invalid", { shortcut: rawValue }),
         "error",
       );
-      input.value = formatShortcutLabel(state.quickAddShortcut);
+      input.value = formatShortcutLabel(current());
       return;
     }
-    if (normalized === state.quickAddShortcut) {
+    if (normalized === current()) {
       input.value = formatShortcutLabel(normalized);
       return;
     }
-    state.quickAddShortcut = normalized;
-    setPref("quickAddShortcut", normalized);
+    setState(normalized);
+    setPref(prefKey, normalized);
     input.value = formatShortcutLabel(normalized);
     notify(
       t(state.uiLanguage, "shortcut.saved", {
@@ -1000,7 +1023,7 @@ function bindShortcutControls() {
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
-      input.value = formatShortcutLabel(state.quickAddShortcut);
+      input.value = formatShortcutLabel(current());
       input.blur();
       return;
     }
@@ -1023,22 +1046,23 @@ function bindShortcutControls() {
   bindEventOnce(input, "ShortcutBlur", "blur", () => {
     if (
       input.value.trim() &&
-      input.value !== formatShortcutLabel(state.quickAddShortcut)
+      input.value !== formatShortcutLabel(current())
     ) {
       return;
     }
-    input.value = formatShortcutLabel(state.quickAddShortcut);
+    input.value = formatShortcutLabel(current());
   });
 
   // 支持手动输入（Firefox 中 change 在 blur 之后触发）
   bindEventOnce(input, "ShortcutChange", "change", () => {
     if (input.value.trim()) commitShortcut(input.value);
-    else input.value = formatShortcutLabel(state.quickAddShortcut);
+    else input.value = formatShortcutLabel(current());
   });
 }
 
 function bindControls() {
-  bindShortcutControls();
+  bindShortcutControls("vb-shortcut-input", "quickAddShortcut");
+  bindShortcutControls("vb-retry-shortcut-input", "retryShortcut");
 
   const input = getPrefsDocument().getElementById("vb-quick-input") as any;
   bindEventOnce(input, "QuickAddEnter", "keydown", (e: any) => {
@@ -1230,14 +1254,22 @@ const prefsController = {
   closeDonationQr() {
     setDonationOverlayVisible(false);
   },
-  resetShortcut() {
-    state.quickAddShortcut = DEFAULT_QUICK_ADD_SHORTCUT;
-    setPref("quickAddShortcut", DEFAULT_QUICK_ADD_SHORTCUT);
-    const input = getPrefsDocument().getElementById("vb-shortcut-input") as any;
-    if (input) input.value = formatShortcutLabel(DEFAULT_QUICK_ADD_SHORTCUT);
+  resetShortcut(which = "quick") {
+    const isRetry = which === "retry";
+    const prefKey = isRetry ? "retryShortcut" : "quickAddShortcut";
+    const fallback = isRetry
+      ? DEFAULT_RETRY_SHORTCUT
+      : DEFAULT_QUICK_ADD_SHORTCUT;
+    const inputId = isRetry ? "vb-retry-shortcut-input" : "vb-shortcut-input";
+
+    if (isRetry) state.retryShortcut = fallback;
+    else state.quickAddShortcut = fallback;
+    setPref(prefKey, fallback);
+    const input = getPrefsDocument().getElementById(inputId) as any;
+    if (input) input.value = formatShortcutLabel(fallback);
     notify(
       t(state.uiLanguage, "shortcut.saved", {
-        shortcut: formatShortcutLabel(DEFAULT_QUICK_ADD_SHORTCUT),
+        shortcut: formatShortcutLabel(fallback),
       }),
       "success",
     );
