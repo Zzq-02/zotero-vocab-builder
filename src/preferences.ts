@@ -1164,11 +1164,54 @@ function bootstrapInit(attempts = 40) {
   }
 }
 
+async function retryFailedWords() {
+  await ensureLoaded(true);
+
+  const pending = state.entries.filter(
+    (entry) => entry.status === "pending" || entry.status === "failed",
+  );
+  if (!pending.length) {
+    notify(t(state.uiLanguage, "notify.retryNone"), "info");
+    return;
+  }
+
+  let ok = 0;
+  for (const entry of pending) {
+    const result = await translate(entry.word);
+    if (result.trans || result.def) {
+      entry.trans = result.trans;
+      entry.def = result.def;
+      entry.pos = result.pos;
+      entry.phone = result.phone;
+      if (result.example) entry.ctx = result.example;
+      entry.status = "completed";
+      entry.tries = 0;
+      ok++;
+    } else {
+      entry.status = "pending";
+    }
+  }
+
+  if (ok > 0) {
+    await syncNoteSafe();
+  }
+  await notifyMainAddon();
+  notify(
+    t(
+      state.uiLanguage,
+      ok === pending.length ? "notify.retriedAll" : "notify.retried",
+      { total: pending.length, ok },
+    ),
+    ok > 0 ? "success" : "error",
+  );
+}
+
 const prefsController = {
   init,
   openVocabNote,
   quickAddWord,
   batchAddWords,
+  retryFailedWords,
   syncFromNote,
   toggleLanguage,
   exportVocabulary,
