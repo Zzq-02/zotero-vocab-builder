@@ -10,10 +10,12 @@
     "./custom-api.test.ts",
     "./exporters.test.ts",
     "./shortcut.test.ts",
+    "./phrase-translate.test.ts",
     "../src/note-state.ts",
     "../src/custom-api.ts",
     "../src/exporters.ts",
     "../src/ui-language.ts",
-    "../src/utils/shortcut.ts"
+    "../src/utils/shortcut.ts",
+    "../src/phrase-translate.ts"
   ]
 }

@@ -20,6 +20,12 @@ import {
   type NoteEntry,
   type VocabEntry,
 } from "./note-state";
+import {
+  parseMyMemory,
+  parseYoudaoFanyi,
+  parseYoudaoJsonapi,
+  type PhraseResult,
+} from "./phrase-translate";
 import { showNotification, type NotificationTone } from "./notifications";
 import { clearPersistedState, loadPersistedState } from "./state-store";
 import {
@@ -218,6 +224,61 @@ async function _fetchAPI(
   }
 }
 
+/**
+ * 短语翻译：依次尝试支持短语的通道（均为 https），任一成功即返回。
+ * 1) 有道 jsonapi（短语/释义/音标/双语例句）
+ * 2) 有道翻译接口（返回整段译文）
+ * 3) MyMemory（免费，兜底）
+ */
+async function translatePhrase(word: string): Promise<PhraseResult> {
+  const empty: PhraseResult = {
+    trans: "",
+    def: "",
+    pos: "",
+    phone: "",
+    example: "",
+  };
+
+  // 1) 有道 jsonapi
+  try {
+    const raw = await _fetchAPI(
+      `https://dict.youdao.com/jsonapi?q=${encodeURIComponent(word)}`,
+      { headers: { Accept: "application/json" } },
+    );
+    if (raw) {
+      const parsed = parseYoudaoJsonapi(JSON.parse(raw));
+      if (parsed.trans || parsed.def) return parsed;
+      // 仅有音标/例句时保留，继续尝试翻译
+      empty.phone = parsed.phone;
+      empty.example = parsed.example;
+    }
+  } catch (e) {}
+
+  // 2) 有道翻译接口
+  try {
+    const raw = await _fetchAPI(
+      `https://fanyi.youdao.com/translate?&doctype=json&type=AUTO&i=${encodeURIComponent(word)}`,
+    );
+    if (raw) {
+      const trans = parseYoudaoFanyi(JSON.parse(raw));
+      if (trans) return { ...empty, trans };
+    }
+  } catch (e) {}
+
+  // 3) MyMemory 兜底
+  try {
+    const raw = await _fetchAPI(
+      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=en|zh-CN`,
+    );
+    if (raw) {
+      const trans = parseMyMemory(JSON.parse(raw));
+      if (trans) return { ...empty, trans };
+    }
+  } catch (e) {}
+
+  return empty;
+}
+
 async function _translate(
   word: string,
 ): Promise<{ trans: string; def: string; pos: string; phone: string; example: string }> {
@@ -240,6 +301,15 @@ async function _translate(
     }
     return finalResult;
   };
+
+  // 短语（含空格，如 "high school"）：内置有道的老词典接口对短语支持差
+  //（常只返回第一个词的释义），改用支持短语的翻译通道（均为 https）。
+  if (_apiName === "youdao" && cleanWord(word).includes(" ")) {
+    const phrase = await translatePhrase(word);
+    if (phrase.trans || phrase.def) {
+      return finish({ ...result, ...phrase });
+    }
+  }
 
   if (_apiName === "custom") {
     const customConfig = parseCustomAPIConfig({
